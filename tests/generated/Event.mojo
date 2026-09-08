@@ -1,6 +1,7 @@
 from std.collections import List, Optional, Span
 
 from cbor import (
+    Box,
     CborDatum,
     DecodeError,
     EncodeOptions,
@@ -31,6 +32,10 @@ struct Event(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         self.code = Int64(0)
         self.ok = False
 
+    def __init__(out self, var code: Int64, var ok: Bool):
+        self.code = code^
+        self.ok = ok^
+
     def encoded_len(self, options: EncodeOptions) -> Int:
         var w = WireWriter()
         self.encode_to(w, options)
@@ -47,12 +52,10 @@ struct Event(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         w.write_tstr("ok")
         w.write_bool(self.ok)
 
-    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        var node = tmp.nodes[root]
+    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
+        var node = tmp.nodes[idx]
         if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, r.position())
+            raise DecodeError(DecodeError.KIND_TYPE, 0)
         var pairs = Int(node.b)
         var k0 = Int(node.a)
         for i in range(pairs):
@@ -64,6 +67,9 @@ struct Event(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if key == "code":
                 self.code = tmp.nodes[vn].a
             if key == "ok":
-                var vk = tmp.nodes[vn].kind
-                self.ok = vk == CK_TRUE
+                self.ok = tmp.nodes[vn].kind == CK_TRUE
 
+    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
+        var tmp = CborValue()
+        var root = decode_item(r, tmp)
+        self._from_node(tmp, root)

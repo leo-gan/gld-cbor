@@ -1,6 +1,7 @@
 from std.collections import List, Optional, Span
 
 from cbor import (
+    Box,
     CborDatum,
     DecodeError,
     EncodeOptions,
@@ -29,6 +30,9 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
     def __init__(out self):
         self.values = List[Float64]()
 
+    def __init__(out self, var values: List[Float64]):
+        self.values = values^
+
     def encoded_len(self, options: EncodeOptions) -> Int:
         var w = WireWriter()
         self.encode_to(w, options)
@@ -44,12 +48,10 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         for _i in range(len(self.values)):
             w.write_float_preferred(self.values[_i])
 
-    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        var node = tmp.nodes[root]
+    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
+        var node = tmp.nodes[idx]
         if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, r.position())
+            raise DecodeError(DecodeError.KIND_TYPE, 0)
         var pairs = Int(node.b)
         var k0 = Int(node.a)
         for i in range(pairs):
@@ -66,3 +68,7 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
                     for _j in range(Int(an.b)):
                         self.values.append(node_as_float(tmp, tmp.kids[a0 + _j]))
 
+    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
+        var tmp = CborValue()
+        var root = decode_item(r, tmp)
+        self._from_node(tmp, root)

@@ -1,0 +1,9 @@
+; Mutual optional records. Codegen emits Optional[Box[...]].
+
+A = {
+  ? b: B,
+}
+
+B = {
+  ? a: A,
+}

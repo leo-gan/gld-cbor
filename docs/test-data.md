@@ -19,6 +19,11 @@ shared external suite and they are not a product schema.
 | `tags.cddl` | Standard tags 0, 1, 32 |
 | `later.cddl` | Sockets, generic application, `.regexp` |
 | `include_parent.cddl` / `leaf.cddl` | One-file `include` |
+| `mid.cddl` / `nested_parent.cddl` | Nested `include` |
+| `catalog.cddl` / `import_parent.cddl` | `export` / `import` catalog |
+| `mutual_ab.cddl` | Mutual optional records |
+| `keywords.cddl` | Mojo keyword identifiers |
+| `union.cddl` | Tagged union `int / tstr` |
 
 ## Golden vectors
 

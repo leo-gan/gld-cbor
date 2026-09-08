@@ -1,6 +1,7 @@
 from std.collections import List, Optional, Span
 
 from cbor import (
+    Box,
     CborDatum,
     DecodeError,
     EncodeOptions,
@@ -33,6 +34,11 @@ struct Document(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         self.n = Int64(0)
         self.meta = Meta()
 
+    def __init__(out self, var id: String, var n: Int64, var meta: Meta):
+        self.id = id^
+        self.n = n^
+        self.meta = meta^
+
     def encoded_len(self, options: EncodeOptions) -> Int:
         var w = WireWriter()
         self.encode_to(w, options)
@@ -52,12 +58,10 @@ struct Document(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         w.write_tstr("meta")
         self.meta.encode_to(w, options)
 
-    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        var node = tmp.nodes[root]
+    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
+        var node = tmp.nodes[idx]
         if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, r.position())
+            raise DecodeError(DecodeError.KIND_TYPE, 0)
         var pairs = Int(node.b)
         var k0 = Int(node.a)
         for i in range(pairs):
@@ -71,5 +75,11 @@ struct Document(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if key == "n":
                 self.n = tmp.nodes[vn].a
             if key == "meta":
-                pass
+                var _c = Meta()
+                _c._from_node(tmp, vn)
+                self.meta = _c^
 
+    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
+        var tmp = CborValue()
+        var root = decode_item(r, tmp)
+        self._from_node(tmp, root)

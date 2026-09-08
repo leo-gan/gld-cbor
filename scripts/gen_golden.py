@@ -31,6 +31,18 @@ def main() -> None:
     # extra half via struct if needed
     _ = struct.pack(">e", 1.0)
     write("indef_array_1_2", bytes.fromhex("9f0102ff"))
+    write(
+        "message_hi",
+        cbor2.dumps(
+            {
+                "f_bool": True,
+                "f_int": 150,
+                "f_uint": 7,
+                "f_float": 1.0,
+                "f_text": "hi",
+            }
+        ),
+    )
     print("wrote", ROOT)
 
 

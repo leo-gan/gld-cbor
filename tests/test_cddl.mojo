@@ -81,6 +81,44 @@ def test_controls_parse() raises:
         assert_equal(doc.types[doc.def_types[k]].kind, CT_CONTROL)
 
 
+def test_regexp_backref_and_lookaround() raises:
+    assert_true(regexp_fullmatch("(a+)-\\1", "aa-aa"))
+    assert_equal(regexp_fullmatch("(a+)-\\1", "aa-a"), False)
+    assert_true(regexp_fullmatch("a(?=b)b", "ab"))
+    assert_true(regexp_fullmatch("a(?!c)b", "ab"))
+    assert_true(regexp_fullmatch("a(?<=a)b", "ab"))
+    assert_true(regexp_fullmatch("a{2,3}", "aaa"))
+    assert_equal(regexp_fullmatch("a{2,3}", "a"), False)
+    assert_true(regexp_fullmatch("\\d\\D", "1x"))
+    assert_true(regexp_fullmatch("\\ba\\b", "a"))
+
+
+def test_include_nested() raises:
+    var doc = parse_cddl_file("testdata/cddl/nested_parent.cddl")
+    var names = 0
+    for i in range(len(doc.def_names)):
+        if doc.def_names[i] == "Leaf":
+            names += 1
+        if doc.def_names[i] == "Mid":
+            names += 1
+        if doc.def_names[i] == "NestedHolder":
+            names += 1
+    assert_equal(names, 3)
+
+
+def test_import_export_catalog() raises:
+    var doc = parse_cddl_file("testdata/cddl/import_parent.cddl")
+    var leaf = 0
+    var holder = 0
+    for i in range(len(doc.def_names)):
+        if doc.def_names[i] == "Leaf":
+            leaf += 1
+        if doc.def_names[i] == "Holder":
+            holder += 1
+    assert_equal(leaf, 1)
+    assert_equal(holder, 1)
+
+
 def test_include_one_file() raises:
     var doc = parse_cddl_file("testdata/cddl/include_parent.cddl")
     var names = 0

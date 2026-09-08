@@ -142,7 +142,9 @@ A single string or the concatenated indefinite result is capped at
 `MAX_ITEM_BYTES` (64_194_304).
 
 `decode_tstr_span` returns a `StringSpan` into the input for a definite text
-string. Indefinite text is still copied, because the chunks have to be joined.
+string. `decode_tstr_chunks` returns one `StringSpan` per definite chunk, so
+indefinite text is also a view. Joining those chunks into one `String` still
+copies.
 
 ## Arrays and maps
 

@@ -1,6 +1,7 @@
 from std.collections import List, Optional, Span
 
 from cbor import (
+    Box,
     CborDatum,
     DecodeError,
     EncodeOptions,
@@ -29,6 +30,9 @@ struct Batch_Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
     def __init__(out self):
         self.items = List[Message]()
 
+    def __init__(out self, var items: List[Message]):
+        self.items = items^
+
     def encoded_len(self, options: EncodeOptions) -> Int:
         var w = WireWriter()
         self.encode_to(w, options)
@@ -40,14 +44,14 @@ struct Batch_Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         n += 1
         w.write_map_len(n)
         w.write_tstr("items")
-        self.items.encode_to(w, options)
+        w.write_array_len(len(self.items))
+        for _i in range(len(self.items)):
+            self.items[_i].encode_to(w, options)
 
-    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        var node = tmp.nodes[root]
+    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
+        var node = tmp.nodes[idx]
         if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, r.position())
+            raise DecodeError(DecodeError.KIND_TYPE, 0)
         var pairs = Int(node.b)
         var k0 = Int(node.a)
         for i in range(pairs):
@@ -57,5 +61,16 @@ struct Batch_Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             var key = tmp.texts[Int(kn.a)]
             var vn = tmp.kids[k0 + i * 2 + 1]
             if key == "items":
-                pass
+                self.items = List[Message]()
+                var an = tmp.nodes[vn]
+                if an.kind == CK_ARRAY:
+                    var a0 = Int(an.a)
+                    for _j in range(Int(an.b)):
+                        var _c = Message()
+                        _c._from_node(tmp, tmp.kids[a0 + _j])
+                        self.items.append(_c^)
 
+    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
+        var tmp = CborValue()
+        var root = decode_item(r, tmp)
+        self._from_node(tmp, root)

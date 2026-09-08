@@ -98,11 +98,11 @@ Also implemented (2026-09-08, ready-now set):
 - `encode_diag_pretty` (indented diagnostic notation).
 - `EncodeOptions.dcbor`: definite, text keys only, CDE key sort, no `undefined` / unassigned simples / NaN / Infinity; integer-valued floats become integers.
 
-Still later:
+Also implemented (2026-09-08, remaining later set):
 
-- CDDL `export` catalogs and nested includes.
-- Full PCRE.
-- Zero-copy views of indefinite text (requires concatenation, so v1 still copies).
+- CDDL `export` catalogs and nested `include` (cycle on a path already on the include stack is an error). `import Name from "file.cddl"` loads that file and requires `Name` to be exported.
+- A larger regexp engine: `{n,m}`, capturing groups, `(?:)`, lookahead, lookbehind, backreferences `\\1`–`\\9`, and `\\d\\D\\w\\W\\s\\S\\b\\B`. This is not a full PCRE library (no recursive patterns, no callouts).
+- Zero-copy views of indefinite text as one `StringSpan` per definite chunk (`decode_tstr_chunks` / `WireReader.read_text_chunks`). A single `StringSpan` of the concatenation is still impossible without copying.
 
 ---
 
@@ -500,7 +500,7 @@ Preferred and CDE encode of a numeric value that fits `Int64` or `UInt64` uses m
 
 Tokens: identifiers, integers, floats, text literals, `/` `=>` `:` `=` `/=` `?` `*` `+` `(` `)` `[` `]` `{` `}` `<` `>` `,` `.` `..` `...` `#` `#6.N` control names (`.size` …), `;` line comments. `;` comments run to end of line. Whitespace is ignored.
 
-The parser **accepts** sockets, generic application, `.regexp` / `.pcre`, unwrap `~`, parenthesized groups, `.bits` / `.ibits` / `.and` / `.within` / `.andcbor`, and one `include "file.cddl"`. Group choice `//` inside a type is still rejected; `//=` is only an assignment operator for group sockets. The included file cannot include another file.
+The parser **accepts** sockets, generic application, `.regexp` / `.pcre`, unwrap `~`, parenthesized groups, `.bits` / `.ibits` / `.and` / `.within` / `.andcbor`, nested `include`, and `export` / `import Name from "file.cddl"`. Group choice `//` inside a type is still rejected; `//=` is only an assignment operator for group sockets. An include of a path already on the stack is a cycle and is rejected.
 
 ### Grammar accepted
 
@@ -560,7 +560,7 @@ A construct that is in this grammar but that codegen does not implement is a **c
 
 Named type → one `.mojo` file under `--out`, package path from the file stem. Identifiers that are Mojo keywords get a trailing underscore (`struct_` , `fn_`).
 
-Recursive named types: Tarjan SCC on the named-type graph. A field whose type, after unwrapping `Optional` / array / map-value, is in the current SCC becomes `Box[T]`. Nullable recursive fields are `Optional[Box[T]]` defaulting to `None`. A non-optional recursive field is a codegen error. A tagged union whose every branch is recursive is a codegen error; otherwise zero-arg init uses the first non-recursive branch.
+Recursive named types: mutual reachability on the named-type graph (same SCC). A field whose type, after unwrapping `Optional` / array / map-value, is in the current SCC becomes `Box[T]`. Nullable recursive fields are `Optional[Box[T]]` defaulting to `None`. A non-optional recursive field is a codegen error. A tagged union whose every branch is recursive is a codegen error; otherwise zero-arg init uses the first non-recursive branch. Mojo 1.0 still rejects *compiling* a struct that names itself through `Box[Self]`; the emitter writes that form and tests check the source.
 
 Emitter writes explicit zero-arg `__init__` (zeros, empty lists, `None`) and a fieldwise overload. No `@fieldwise_init`.
 
