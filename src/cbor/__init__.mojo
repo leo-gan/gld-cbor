@@ -1,4 +1,4 @@
-from diag.emit import encode_diag
+from diag.emit import encode_diag, encode_diag_pretty
 from diag.parse import decode_diag
 from runtime.box import Box
 from runtime.datum import CborDatum, decode, encode

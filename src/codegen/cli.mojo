@@ -2,7 +2,7 @@ from std.collections import List
 from std.os.process import Process
 from std.sys import argv
 
-from cddl.parse import parse_cddl
+from cddl.parse import parse_cddl_file
 from codegen.emit import emit_all
 
 
@@ -18,13 +18,6 @@ def _mkdir_p(path: String) raises:
     args.append(path)
     var proc = Process.run("mkdir", args)
     _ = proc.wait()
-
-
-def _read_text(path: String) raises -> String:
-    var f = open(path, "r")
-    var s = String(f.read())
-    f.close()
-    return s
 
 
 def _write_text(path: String, body: String) raises:
@@ -52,8 +45,7 @@ def main() raises:
     if out_dir.byte_length() == 0 or cddl_path.byte_length() == 0:
         print(_usage())
         return
-    var text = _read_text(cddl_path)
-    var doc = parse_cddl(text)
+    var doc = parse_cddl_file(cddl_path)
     var files = emit_all(doc)
     _mkdir_p(out_dir)
     var k = 0

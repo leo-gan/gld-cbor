@@ -20,6 +20,7 @@ comptime CT_GENERIC = 15
 comptime CT_REGEXP = 16
 comptime CT_CONTROL = 17
 comptime CT_VALUE = 18
+comptime CT_UNWRAP = 19
 
 
 struct CddlMember(Copyable, ImplicitlyCopyable, Movable):

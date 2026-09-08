@@ -9,6 +9,7 @@ from cbor import (
     CK_TEXT,
     DecodeError,
     EncodeOptions,
+    decode_diag,
     decode_strict,
     decode_value,
     encode_value,
@@ -102,6 +103,26 @@ def test_half_one() raises:
     assert_equal(Int(out[2]), 0x00)
     var pref = encode_value(v, EncodeOptions.preferred)
     assert_equal(Int(pref[0]), 0xF9)
+
+
+def test_dcbor_int_float() raises:
+    # half 1.0 becomes integer 1 under dCBOR
+    var v = decode_value(bytes_of(0xF9, 0x3C, 0x00))
+    var out = encode_value(v, EncodeOptions.dcbor)
+    assert_equal(len(out), 1)
+    assert_equal(Int(out[0]), 0x01)
+
+
+def test_dcbor_rejects_undefined() raises:
+    var v = decode_value(bytes_of(0xF7))
+    with assert_raises(contains="kind=12"):
+        _ = encode_value(v, EncodeOptions.dcbor)
+
+
+def test_dcbor_text_keys_only() raises:
+    var v = decode_diag("{1: 2}")
+    with assert_raises(contains="kind=12"):
+        _ = encode_value(v, EncodeOptions.dcbor)
 
 
 def main() raises:

@@ -115,3 +115,59 @@ def _emit_node(v: CborValue, idx: Int) raises -> String:
 
 def encode_diag(value: CborValue) raises -> String:
     return _emit_node(value, value.root)
+
+
+def _spaces(n: Int) -> String:
+    var s = String()
+    for _i in range(n):
+        s += " "
+    return s
+
+
+def _emit_pretty(v: CborValue, idx: Int, indent: Int, step: Int) raises -> String:
+    var n = v.nodes[idx]
+    if n.kind == CK_ARRAY:
+        var count = Int(n.b)
+        if count == 0:
+            return String("[]")
+        var out = String("[\n")
+        var k0 = Int(n.a)
+        var next = indent + step
+        for i in range(count):
+            out += _spaces(next)
+            out += _emit_pretty(v, v.kids[k0 + i], next, step)
+            if i + 1 < count:
+                out += ","
+            out += "\n"
+        out += _spaces(indent)
+        out += "]"
+        return out
+    if n.kind == CK_MAP:
+        var pairs = Int(n.b)
+        if pairs == 0:
+            return String("{}")
+        var outm = String("{\n")
+        var m0 = Int(n.a)
+        var nextm = indent + step
+        for i in range(pairs):
+            outm += _spaces(nextm)
+            outm += _emit_pretty(v, v.kids[m0 + i * 2], nextm, step)
+            outm += ": "
+            outm += _emit_pretty(v, v.kids[m0 + i * 2 + 1], nextm, step)
+            if i + 1 < pairs:
+                outm += ","
+            outm += "\n"
+        outm += _spaces(indent)
+        outm += "}"
+        return outm
+    if n.kind == CK_TAG:
+        return String(n.b) + "(" + _emit_pretty(v, n.c, indent, step) + ")"
+    return _emit_node(v, idx)
+
+
+def encode_diag_pretty(value: CborValue, indent: Int = 2) raises -> String:
+    """Diagnostic notation with one item per line inside arrays and maps."""
+    var step = indent
+    if step < 1:
+        step = 2
+    return _emit_pretty(value, value.root, 0, step)

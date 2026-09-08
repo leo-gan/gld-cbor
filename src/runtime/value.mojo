@@ -234,9 +234,26 @@ def decode_value[origin: ImmOrigin](buf: Span[Byte, origin]) raises DecodeError 
     return v^
 
 
+def _is_nan_or_inf(bits: UInt64) -> Bool:
+    var exp = Int((bits >> UInt64(52)) & UInt64(0x7FF))
+    return exp == 0x7FF
+
+
+def _encode_float_dcbor(mut w: WireWriter, fv: Float64) raises DecodeError:
+    var bits = f64_to_bits(fv)
+    if _is_nan_or_inf(bits):
+        raise DecodeError(DecodeError.KIND_CDE, 0)
+    var as_int = Int64(fv)
+    if Float64(as_int) == fv:
+        w.write_int(as_int)
+        return
+    w.write_float_preferred(fv)
+
+
 def _encode_node(v: CborValue, idx: Int, mut w: WireWriter, options: EncodeOptions) raises DecodeError:
     var n = v.nodes[idx]
     var ident = options.is_identity()
+    var dcbor = options.is_dcbor()
     if n.kind == CK_INT:
         w.write_int(n.a)
     elif n.kind == CK_UINT:
@@ -290,22 +307,32 @@ def _encode_node(v: CborValue, idx: Int, mut w: WireWriter, options: EncodeOptio
     elif n.kind == CK_NULL:
         w.write_null()
     elif n.kind == CK_UNDEFINED:
+        if dcbor:
+            raise DecodeError(DecodeError.KIND_CDE, 0)
         w.write_undefined()
     elif n.kind == CK_SIMPLE:
+        if dcbor:
+            raise DecodeError(DecodeError.KIND_CDE, 0)
         w.write_simple(Int(n.a))
     elif n.kind == CK_FLOAT16:
         if ident:
             w.write_float16_bits(UInt16(n.b))
+        elif dcbor:
+            _encode_float_dcbor(w, half_to_f64(UInt16(n.b)))
         else:
             w.write_float_preferred(half_to_f64(UInt16(n.b)))
     elif n.kind == CK_FLOAT32:
         if ident:
             w.write_float32_bits(UInt32(n.b))
+        elif dcbor:
+            _encode_float_dcbor(w, Float64(f32_from_bits(UInt32(n.b))))
         else:
             w.write_float_preferred(Float64(f32_from_bits(UInt32(n.b))))
     elif n.kind == CK_FLOAT64:
         if ident:
             w.write_float64_bits(n.b)
+        elif dcbor:
+            _encode_float_dcbor(w, f64_from_bits(n.b))
         else:
             w.write_float_preferred(f64_from_bits(n.b))
     else:
@@ -346,6 +373,7 @@ def _encode_map(
     var pairs = Int(n.b)
     var k0 = Int(n.a)
     var ident = options.is_identity()
+    var dcbor = options.is_dcbor()
     if ident and (n.flags & FLAG_INDEF) != 0:
         w.write_head_raw(5, AI_INDEF, UInt64(0))
         for i in range(pairs):
@@ -356,7 +384,11 @@ def _encode_map(
     var order = List[Int]()
     for i in range(pairs):
         order.append(i)
-    if options.is_cde():
+    if dcbor:
+        for i in range(pairs):
+            if v.nodes[v.kids[k0 + i * 2]].kind != CK_TEXT:
+                raise DecodeError(DecodeError.KIND_CDE, 0)
+    if options.is_cde() or dcbor:
         # insertion sort by encoded key bytes
         for i in range(pairs):
             var j = i
