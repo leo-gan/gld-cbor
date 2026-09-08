@@ -61,28 +61,41 @@ struct Document(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
+        var _expect = 0
         for _i in range(_pairs):
             var _ks = 0
             var _kn = 0
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if _kn == 2:
-                if r.bytes_eq(_ks, _kn, "id"):
-                    self.id = r.read_tstr()
-                else:
-                    r.skip_item()
-            elif _kn == 1:
-                if r.bytes_eq(_ks, _kn, "n"):
-                    self.n = r.read_int64()
-                else:
-                    r.skip_item()
-            elif _kn == 4:
-                if r.bytes_eq(_ks, _kn, "meta"):
-                    var _c = Meta()
-                    _c.decode_from(r)
-                    self.meta = _c^
-                else:
-                    r.skip_item()
+            if _expect == 0 and r.bytes_eq(_ks, _kn, "id"):
+                self.id = r.read_tstr()
+                _expect = 1
+            elif _expect == 1 and r.bytes_eq(_ks, _kn, "n"):
+                self.n = r.read_int64()
+                _expect = 2
+            elif _expect == 2 and r.bytes_eq(_ks, _kn, "meta"):
+                var _c = Meta()
+                _c.decode_from(r)
+                self.meta = _c^
+                _expect = 3
             else:
-                r.skip_item()
+                if _kn == 2:
+                    if r.bytes_eq(_ks, _kn, "id"):
+                        self.id = r.read_tstr()
+                    else:
+                        r.skip_item()
+                elif _kn == 1:
+                    if r.bytes_eq(_ks, _kn, "n"):
+                        self.n = r.read_int64()
+                    else:
+                        r.skip_item()
+                elif _kn == 4:
+                    if r.bytes_eq(_ks, _kn, "meta"):
+                        var _c = Meta()
+                        _c.decode_from(r)
+                        self.meta = _c^
+                    else:
+                        r.skip_item()
+                else:
+                    r.skip_item()

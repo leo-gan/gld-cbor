@@ -572,7 +572,7 @@ def _emit_struct_pairs(
     return out
 
 
-def _emit_decode_by_key_len(
+def _emit_decode_expect_then_len(
     fields: List[String],
     types: List[String],
     opts: List[Bool],
@@ -582,6 +582,45 @@ def _emit_decode_by_key_len(
     if len(fields) == 0:
         out += "            r.skip_item()\n"
         return out
+    for i in range(len(fields)):
+        var read_tn = types[i]
+        var dest = "self." + fields[i]
+        if opts[i]:
+            read_tn = _cut(types[i], 9, types[i].byte_length() - 1)
+        if i == 0:
+            out += (
+                "            if _expect == 0 and r.bytes_eq(_ks, _kn, \""
+                + keys[i]
+                + "\"):\n"
+            )
+        else:
+            out += (
+                "            elif _expect == "
+                + String(i)
+                + " and r.bytes_eq(_ks, _kn, \""
+                + keys[i]
+                + "\"):\n"
+            )
+        out += _emit_decode_value(String("                "), dest, read_tn, opts[i])
+        out += "                _expect = " + String(i + 1) + "\n"
+    out += "            else:\n"
+    out += _emit_decode_by_key_len(fields, types, opts, keys, String("                "))
+    return out
+
+
+def _emit_decode_by_key_len(
+    fields: List[String],
+    types: List[String],
+    opts: List[Bool],
+    keys: List[String],
+    indent: String,
+) raises DecodeError -> String:
+    var out = String()
+    if len(fields) == 0:
+        out += indent + "r.skip_item()\n"
+        return out
+    var inner = indent + "    "
+    var body = inner + "    "
     var lens = List[Int]()
     for i in range(len(fields)):
         var ln = keys[i].byte_length()
@@ -595,9 +634,9 @@ def _emit_decode_by_key_len(
     for li in range(len(lens)):
         var ln = lens[li]
         if li == 0:
-            out += "            if _kn == " + String(ln) + ":\n"
+            out += indent + "if _kn == " + String(ln) + ":\n"
         else:
-            out += "            elif _kn == " + String(ln) + ":\n"
+            out += indent + "elif _kn == " + String(ln) + ":\n"
         var first = True
         for i in range(len(fields)):
             if keys[i].byte_length() != ln:
@@ -607,15 +646,15 @@ def _emit_decode_by_key_len(
             if opts[i]:
                 read_tn = _cut(types[i], 9, types[i].byte_length() - 1)
             if first:
-                out += "                if r.bytes_eq(_ks, _kn, \"" + keys[i] + "\"):\n"
+                out += inner + "if r.bytes_eq(_ks, _kn, \"" + keys[i] + "\"):\n"
                 first = False
             else:
-                out += "                elif r.bytes_eq(_ks, _kn, \"" + keys[i] + "\"):\n"
-            out += _emit_decode_value(String("                    "), dest, read_tn, opts[i])
-        out += "                else:\n"
-        out += "                    r.skip_item()\n"
-    out += "            else:\n"
-    out += "                r.skip_item()\n"
+                out += inner + "elif r.bytes_eq(_ks, _kn, \"" + keys[i] + "\"):\n"
+            out += _emit_decode_value(body, dest, read_tn, opts[i])
+        out += inner + "else:\n"
+        out += body + "r.skip_item()\n"
+    out += indent + "else:\n"
+    out += inner + "r.skip_item()\n"
     return out
 
 
@@ -801,13 +840,15 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
         )
     out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
     out += "        var _pairs = r.read_map_len()\n"
+    if len(fields) > 0:
+        out += "        var _expect = 0\n"
     out += "        for _i in range(_pairs):\n"
     out += "            var _ks = 0\n"
     out += "            var _kn = 0\n"
     out += "            if not r.take_definite_tstr(_ks, _kn):\n"
     out += "                r.skip_item()\n"
     out += "                continue\n"
-    out += _emit_decode_by_key_len(fields, types, opts, keys)
+    out += _emit_decode_expect_then_len(fields, types, opts, keys)
     return out
 
 

@@ -1,7 +1,9 @@
 from std.testing import TestSuite, assert_equal, assert_true
 
 from bytes_util import bytes_of
-from cbor import EncodeOptions, decode, encode
+from std.collections import List
+
+from cbor import EncodeOptions, decode, encode, encode_into
 from manual_types import Message
 
 
@@ -15,6 +17,19 @@ def test_message_roundtrip() raises:
     assert_equal(m2.f_uint, UInt64(7))
     assert_true(m2.f_float == 1.5)
     assert_equal(m2.f_text, String("hi"))
+
+
+def test_encode_into_reuses_buffer() raises:
+    var m = Message(True, Int64(150), UInt64(7), 1.5, String("hi"))
+    var dest = List[Byte](capacity=8)
+    var n = encode_into(m, dest)
+    var once = encode(m)
+    assert_equal(n, len(once))
+    assert_equal(len(dest), len(once))
+    for i in range(len(once)):
+        assert_equal(Int(dest[i]), Int(once[i]))
+    var n2 = encode_into(m, dest)
+    assert_equal(n2, n)
 
 
 def test_manual_cde_key_order() raises:

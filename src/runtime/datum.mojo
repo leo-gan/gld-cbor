@@ -25,9 +25,26 @@ def encode[
     var cap = value.encoded_len(options)
     if cap < 1:
         cap = 1
-    var w = WireWriter(capacity=cap)
+    var w = WireWriter(capacity=cap, exact=True)
     value.encode_to(w, options)
     return w^.finish()
+
+
+def encode_into[
+    T: CborDatum
+](
+    value: T, mut dest: List[Byte], options: EncodeOptions = EncodeOptions.preferred
+) -> Int:
+    """Write into `dest`, reusing its allocation. Returns the byte count."""
+    var cap = value.encoded_len(options)
+    if cap < 1:
+        cap = 1
+    dest.resize(unsafe_uninit_length=cap)
+    var w = WireWriter(dest^, pos=0)
+    value.encode_to(w, options)
+    var n = w.pos
+    dest = w^.finish()
+    return n
 
 
 def decode[
