@@ -52,5 +52,13 @@ from runtime.value import (
     encode_value,
     node_as_float,
 )
+from wire.head import (
+    encoded_bstr_len,
+    encoded_bytes_len,
+    encoded_head_len,
+    encoded_int_len,
+    encoded_tstr_len,
+    encoded_uint_len,
+)
 from wire.reader import WireReader
-from wire.writer import WireWriter
+from wire.writer import WireWriter, encoded_float_preferred_len

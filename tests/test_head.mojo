@@ -3,9 +3,17 @@ from std.testing import TestSuite, assert_equal, assert_raises
 
 from bytes_util import bytes_of, hex_of
 from runtime.error import DecodeError
-from wire.head import read_head, shortest_ai, write_head
+from wire.head import (
+    encoded_head_len,
+    encoded_int_len,
+    encoded_tstr_len,
+    encoded_uint_len,
+    read_head,
+    shortest_ai,
+    write_head,
+)
 from wire.reader import WireReader
-from wire.writer import WireWriter
+from wire.writer import WireWriter, encoded_float_preferred_len
 
 
 def _round_uint(value: UInt64) raises:
@@ -122,6 +130,50 @@ def test_bool_and_null() raises:
     assert_equal(Int(buf[1]), 0xF5)
     assert_equal(Int(buf[2]), 0xF6)
     assert_equal(Int(buf[3]), 0xF7)
+
+
+def test_encoded_len_matches_write() raises:
+    assert_equal(encoded_head_len(UInt64(0)), 1)
+    assert_equal(encoded_head_len(UInt64(23)), 1)
+    assert_equal(encoded_head_len(UInt64(24)), 2)
+    assert_equal(encoded_head_len(UInt64(256)), 3)
+    assert_equal(encoded_int_len(Int64(-1)), 1)
+    assert_equal(encoded_int_len(Int64(-25)), 2)
+    assert_equal(encoded_uint_len(UInt64(24)), 2)
+    assert_equal(encoded_tstr_len(6), 7)
+    var w = WireWriter()
+    w.write_float_preferred(1.0)
+    var fb = w^.finish()
+    assert_equal(encoded_float_preferred_len(1.0), len(fb))
+    w = WireWriter()
+    w.write_tstr(String("hello"))
+    var tb = w^.finish()
+    assert_equal(encoded_tstr_len(5), len(tb))
+    assert_equal(Int(tb[0]), 0x65)
+
+
+def test_typed_reader() raises:
+    var enc = WireWriter()
+    enc.write_bool(True)
+    enc.write_int(Int64(-25))
+    enc.write_uint(UInt64(7))
+    enc.write_tstr(String("hi"))
+    enc.write_map_len(1)
+    enc.write_tstr(String("k"))
+    enc.write_null()
+    var buf = enc^.finish()
+    var dec = WireReader(buf)
+    assert_equal(dec.read_bool(), True)
+    assert_equal(dec.read_int64(), Int64(-25))
+    assert_equal(dec.read_uint64(), UInt64(7))
+    assert_equal(dec.read_tstr(), String("hi"))
+    assert_equal(dec.read_map_len(), 1)
+    var ks = 0
+    var kn = 0
+    assert_equal(dec.take_definite_tstr(ks, kn), True)
+    assert_equal(dec.bytes_eq(ks, kn, "k"), True)
+    dec.skip_item()
+    assert_equal(dec.remaining(), 0)
 
 
 def test_truncated() raises:

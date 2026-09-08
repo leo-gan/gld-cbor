@@ -1,7 +1,35 @@
 from std.collections import List, Span
+from std.memory import unsafe_memcpy
 
-from wire.head import write_break, write_head, write_head_raw
+from wire.head import extra_len, write_break, write_head, write_head_raw
 from wire.half import f32_to_bits, f64_to_bits, f64_to_half_bits, half_to_f64
+
+
+def preferred_float_parts(v: Float64) -> Tuple[Int, UInt64]:
+    """Return `(ai, payload)` for RFC 8949 preferred float width."""
+    var bits = f64_to_bits(v)
+    var exp = Int((bits >> UInt64(52)) & UInt64(0x7FF))
+    var frac = bits & ((UInt64(1) << UInt64(52)) - UInt64(1))
+    if exp == 0x7FF and frac != UInt64(0):
+        if (frac << UInt64(12)) == UInt64(0):
+            return (25, UInt64(0x7E00))
+    var h = f64_to_half_bits(v)
+    var back = half_to_f64(h)
+    if f64_to_bits(back) == bits or (exp == 0x7FF and frac == UInt64(0)):
+        if exp == 0x7FF and frac == UInt64(0):
+            if (bits >> UInt64(63)) == UInt64(1):
+                return (25, UInt64(0xFC00))
+            return (25, UInt64(0x7C00))
+        if f64_to_bits(back) == bits:
+            return (25, UInt64(h))
+    var f32 = Float32(v)
+    if f64_to_bits(Float64(f32)) == bits:
+        return (26, UInt64(f32_to_bits(f32)))
+    return (27, bits)
+
+
+def encoded_float_preferred_len(v: Float64) -> Int:
+    return 1 + extra_len(preferred_float_parts(v)[0])
 
 
 struct WireWriter(Movable):
@@ -14,6 +42,29 @@ struct WireWriter(Movable):
 
     def write_byte(mut self, b: Byte):
         self.buf.append(b)
+
+    def write_bytes[origin: ImmOrigin](mut self, data: Span[Byte, origin]):
+        var n = len(data)
+        if n == 0:
+            return
+        var start = len(self.buf)
+        self.buf.resize(start + n, Byte(0))
+        unsafe_memcpy(
+            dest=self.buf.unsafe_ptr().unsafe_offset(start),
+            src=data.unsafe_ptr(),
+            count=n,
+        )
+
+    def write_bytes_range(mut self, src: List[Byte], start: Int, n: Int):
+        if n <= 0:
+            return
+        var dst = len(self.buf)
+        self.buf.resize(dst + n, Byte(0))
+        unsafe_memcpy(
+            dest=self.buf.unsafe_ptr().unsafe_offset(dst),
+            src=src.unsafe_ptr().unsafe_offset(start),
+            count=n,
+        )
 
     def write_head(mut self, major: Int, argument: UInt64):
         write_head(self.buf, major, argument)
@@ -40,14 +91,12 @@ struct WireWriter(Movable):
 
     def write_bstr[origin: ImmOrigin](mut self, data: Span[Byte, origin]):
         self.write_head(2, UInt64(len(data)))
-        for i in range(len(data)):
-            self.write_byte(data[i])
+        self.write_bytes(data)
 
     def write_tstr(mut self, v: String):
         var b = v.as_bytes()
         self.write_head(3, UInt64(len(b)))
-        for i in range(len(b)):
-            self.write_byte(b[i])
+        self.write_bytes(b)
 
     def write_array_len(mut self, n: Int):
         self.write_head(4, UInt64(n))
@@ -60,21 +109,21 @@ struct WireWriter(Movable):
 
     def write_simple(mut self, n: Int):
         if n < 24:
-            self.write_head(7, UInt64(n))
+            self.write_byte(Byte(0xE0 | n))
             return
         self.write_head(7, UInt64(n))
 
     def write_false(mut self):
-        self.write_head(7, UInt64(20))
+        self.write_byte(Byte(0xF4))
 
     def write_true(mut self):
-        self.write_head(7, UInt64(21))
+        self.write_byte(Byte(0xF5))
 
     def write_null(mut self):
-        self.write_head(7, UInt64(22))
+        self.write_byte(Byte(0xF6))
 
     def write_undefined(mut self):
-        self.write_head(7, UInt64(23))
+        self.write_byte(Byte(0xF7))
 
     def write_bool(mut self, v: Bool):
         if v:
@@ -92,32 +141,13 @@ struct WireWriter(Movable):
         self.write_head_raw(7, 27, bits)
 
     def write_float_preferred(mut self, v: Float64):
-        var bits = f64_to_bits(v)
-        var exp = Int((bits >> UInt64(52)) & UInt64(0x7FF))
-        var frac = bits & ((UInt64(1) << UInt64(52)) - UInt64(1))
-        if exp == 0x7FF and frac != UInt64(0):
-            # zero-payload NaN → f97e00; otherwise keep shortest that holds payload
-            if (frac << UInt64(12)) == UInt64(0):
-                self.write_float16_bits(UInt16(0x7E00))
-                return
-        var h = f64_to_half_bits(v)
-        var back = half_to_f64(h)
-        if f64_to_bits(back) == bits or (exp == 0x7FF and frac == UInt64(0)):
-            # infinities and exact half values
-            if exp == 0x7FF and frac == UInt64(0):
-                if (bits >> UInt64(63)) == UInt64(1):
-                    self.write_float16_bits(UInt16(0xFC00))
-                else:
-                    self.write_float16_bits(UInt16(0x7C00))
-                return
-            if f64_to_bits(back) == bits:
-                self.write_float16_bits(h)
-                return
-        var f32 = Float32(v)
-        if f64_to_bits(Float64(f32)) == bits:
-            self.write_float32_bits(f32_to_bits(f32))
-            return
-        self.write_float64_bits(bits)
+        var parts = preferred_float_parts(v)
+        if parts[0] == 25:
+            self.write_float16_bits(UInt16(parts[1]))
+        elif parts[0] == 26:
+            self.write_float32_bits(UInt32(parts[1]))
+        else:
+            self.write_float64_bits(parts[1])
 
     def finish(deinit self) -> List[Byte]:
         return self.buf^

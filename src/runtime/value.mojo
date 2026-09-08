@@ -265,22 +265,18 @@ def _encode_node(v: CborValue, idx: Int, mut w: WireWriter, options: EncodeOptio
         if ident and (n.flags & FLAG_INDEF) != 0:
             w.write_head_raw(2, AI_INDEF, UInt64(0))
             w.write_head(2, n.b)
-            for i in range(ln):
-                w.write_byte(v.bytes[start + i])
+            w.write_bytes_range(v.bytes, start, ln)
             w.write_break()
         else:
-            var tmp = List[Byte](capacity=ln)
-            for i in range(ln):
-                tmp.append(v.bytes[start + i])
-            w.write_bstr(tmp)
+            w.write_head(2, UInt64(ln))
+            w.write_bytes_range(v.bytes, start, ln)
     elif n.kind == CK_TEXT:
         var t = v.texts[Int(n.a)]
         if ident and (n.flags & FLAG_INDEF) != 0:
             var b = t.as_bytes()
             w.write_head_raw(3, AI_INDEF, UInt64(0))
             w.write_head(3, UInt64(len(b)))
-            for i in range(len(b)):
-                w.write_byte(b[i])
+            w.write_bytes(b)
             w.write_break()
         else:
             w.write_tstr(t)

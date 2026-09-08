@@ -39,6 +39,32 @@ def extra_len(ai: Int) -> Int:
     return 0
 
 
+def encoded_head_len(argument: UInt64) -> Int:
+    return 1 + extra_len(shortest_ai(argument))
+
+
+def encoded_uint_len(v: UInt64) -> Int:
+    return encoded_head_len(v)
+
+
+def encoded_int_len(v: Int64) -> Int:
+    if v >= Int64(0):
+        return encoded_head_len(UInt64(v))
+    return encoded_head_len(UInt64(-(v + Int64(1))))
+
+
+def encoded_bytes_len(n: Int) -> Int:
+    return encoded_head_len(UInt64(n)) + n
+
+
+def encoded_tstr_len(n: Int) -> Int:
+    return encoded_bytes_len(n)
+
+
+def encoded_bstr_len(n: Int) -> Int:
+    return encoded_bytes_len(n)
+
+
 def append_be(mut buf: List[Byte], argument: UInt64, n: Int):
     var i = n
     while i > 0:

@@ -305,21 +305,13 @@ def _header() -> String:
     out += "    EncodeOptions,\n"
     out += "    WireReader,\n"
     out += "    WireWriter,\n"
-    out += "    decode_value,\n"
-    out += "    node_as_float,\n"
-    out += "    CK_ARRAY,\n"
-    out += "    CK_BYTES,\n"
-    out += "    CK_FALSE,\n"
-    out += "    CK_FLOAT16,\n"
-    out += "    CK_FLOAT32,\n"
-    out += "    CK_FLOAT64,\n"
-    out += "    CK_INT,\n"
-    out += "    CK_MAP,\n"
-    out += "    CK_TEXT,\n"
-    out += "    CK_TRUE,\n"
-    out += "    CK_UINT,\n"
-    out += ")\n"
-    out += "from runtime.value import decode_item, CborValue\n\n\n"
+    out += "    encoded_bstr_len,\n"
+    out += "    encoded_float_preferred_len,\n"
+    out += "    encoded_head_len,\n"
+    out += "    encoded_int_len,\n"
+    out += "    encoded_tstr_len,\n"
+    out += "    encoded_uint_len,\n"
+    out += ")\n\n\n"
     return out
 
 
@@ -364,103 +356,111 @@ def _emit_write_value(indent: String, access: String, tn: String) -> String:
     return out
 
 
-def _emit_read_value(
+def _emit_len_value(indent: String, access: String, tn: String) -> String:
+    var out = String()
+    if tn == "Bool":
+        out += indent + "n += 1\n"
+    elif tn == "Int64":
+        out += indent + "n += encoded_int_len(" + access + ")\n"
+    elif tn == "UInt64":
+        out += indent + "n += encoded_uint_len(" + access + ")\n"
+    elif tn == "Float64":
+        out += indent + "n += encoded_float_preferred_len(" + access + ")\n"
+    elif tn == "String":
+        out += indent + "n += encoded_tstr_len(" + access + ".byte_length())\n"
+    elif tn == "List[Byte]":
+        out += indent + "n += encoded_bstr_len(len(" + access + "))\n"
+    elif tn == "List[Float64]":
+        out += indent + "n += encoded_head_len(UInt64(len(" + access + ")))\n"
+        out += indent + "for _i in range(len(" + access + ")):\n"
+        out += indent + "    n += encoded_float_preferred_len(" + access + "[_i])\n"
+    elif tn == "List[String]":
+        out += indent + "n += encoded_head_len(UInt64(len(" + access + ")))\n"
+        out += indent + "for _i in range(len(" + access + ")):\n"
+        out += indent + "    n += encoded_tstr_len(" + access + "[_i].byte_length())\n"
+    elif tn == "List[Int64]":
+        out += indent + "n += encoded_head_len(UInt64(len(" + access + ")))\n"
+        out += indent + "for _i in range(len(" + access + ")):\n"
+        out += indent + "    n += encoded_int_len(" + access + "[_i])\n"
+    elif _starts(tn, "List["):
+        var inner = _cut(tn, 5, tn.byte_length() - 1)
+        out += indent + "n += encoded_head_len(UInt64(len(" + access + ")))\n"
+        out += indent + "for _i in range(len(" + access + ")):\n"
+        if _starts(inner, "Box["):
+            out += indent + "    n += " + access + "[_i][].encoded_len(options)\n"
+        else:
+            out += indent + "    n += " + access + "[_i].encoded_len(options)\n"
+    elif _starts(tn, "Box["):
+        out += indent + "n += " + access + "[].encoded_len(options)\n"
+    else:
+        out += indent + "n += " + access + ".encoded_len(options)\n"
+    return out
+
+
+def _opt_assign(indent: String, dest: String, tn: String, expr: String, opt: Bool) -> String:
+    if opt:
+        return indent + dest + " = Optional[" + tn + "](" + expr + ")\n"
+    return indent + dest + " = " + expr + "\n"
+
+
+def _emit_decode_value(
     indent: String, dest: String, tn: String, opt: Bool
 ) raises DecodeError -> String:
     var out = String()
     if tn == "Bool":
-        if opt:
-            out += indent + dest + " = Optional[Bool](tmp.nodes[vn].kind == CK_TRUE)\n"
-        else:
-            out += indent + dest + " = tmp.nodes[vn].kind == CK_TRUE\n"
-    elif tn == "Int64":
-        if opt:
-            out += indent + dest + " = Optional[Int64](tmp.nodes[vn].a)\n"
-        else:
-            out += indent + dest + " = tmp.nodes[vn].a\n"
-    elif tn == "UInt64":
-        out += indent + "var uv = tmp.nodes[vn]\n"
-        out += indent + "var uval = uv.b\n"
-        out += indent + "if uv.kind == CK_INT:\n"
-        out += indent + "    uval = UInt64(uv.a)\n"
-        if opt:
-            out += indent + dest + " = Optional[UInt64](uval)\n"
-        else:
-            out += indent + dest + " = uval\n"
-    elif tn == "Float64":
-        if opt:
-            out += indent + dest + " = Optional[Float64](node_as_float(tmp, vn))\n"
-        else:
-            out += indent + dest + " = node_as_float(tmp, vn)\n"
-    elif tn == "String":
-        if opt:
-            out += indent + dest + " = Optional[String](tmp.texts[Int(tmp.nodes[vn].a)])\n"
-        else:
-            out += indent + dest + " = tmp.texts[Int(tmp.nodes[vn].a)]\n"
-    elif tn == "List[Byte]":
-        out += indent + dest + " = List[Byte]()\n"
-        out += indent + "var bn = tmp.nodes[vn]\n"
-        out += indent + "if bn.kind == CK_BYTES:\n"
-        out += indent + "    var b0 = Int(bn.a)\n"
-        out += indent + "    for _j in range(Int(bn.b)):\n"
-        out += indent + "        " + dest + ".append(tmp.bytes[b0 + _j])\n"
-    elif tn == "List[Float64]":
-        out += indent + dest + " = List[Float64]()\n"
-        out += indent + "var an = tmp.nodes[vn]\n"
-        out += indent + "if an.kind == CK_ARRAY:\n"
-        out += indent + "    var a0 = Int(an.a)\n"
-        out += indent + "    for _j in range(Int(an.b)):\n"
-        out += indent + "        " + dest + ".append(node_as_float(tmp, tmp.kids[a0 + _j]))\n"
-    elif tn == "List[String]":
-        out += indent + dest + " = List[String]()\n"
-        out += indent + "var an = tmp.nodes[vn]\n"
-        out += indent + "if an.kind == CK_ARRAY:\n"
-        out += indent + "    var a0 = Int(an.a)\n"
-        out += indent + "    for _j in range(Int(an.b)):\n"
-        out += (
-            indent
-            + "        "
-            + dest
-            + ".append(tmp.texts[Int(tmp.nodes[tmp.kids[a0 + _j]].a)])\n"
-        )
-    elif tn == "List[Int64]":
-        out += indent + dest + " = List[Int64]()\n"
-        out += indent + "var an = tmp.nodes[vn]\n"
-        out += indent + "if an.kind == CK_ARRAY:\n"
-        out += indent + "    var a0 = Int(an.a)\n"
-        out += indent + "    for _j in range(Int(an.b)):\n"
-        out += indent + "        " + dest + ".append(tmp.nodes[tmp.kids[a0 + _j]].a)\n"
-    elif _starts(tn, "List["):
+        return _opt_assign(indent, dest, tn, "r.read_bool()", opt)
+    if tn == "Int64":
+        return _opt_assign(indent, dest, tn, "r.read_int64()", opt)
+    if tn == "UInt64":
+        return _opt_assign(indent, dest, tn, "r.read_uint64()", opt)
+    if tn == "Float64":
+        return _opt_assign(indent, dest, tn, "r.read_float64()", opt)
+    if tn == "String":
+        return _opt_assign(indent, dest, tn, "r.read_tstr()", opt)
+    if tn == "List[Byte]":
+        return _opt_assign(indent, dest, tn, "r.read_bstr()", opt)
+    if tn == "List[Float64]" or tn == "List[String]" or tn == "List[Int64]" or _starts(
+        tn, "List["
+    ):
         var inner = _cut(tn, 5, tn.byte_length() - 1)
-        out += indent + dest + " = " + tn + "()\n"
-        out += indent + "var an = tmp.nodes[vn]\n"
-        out += indent + "if an.kind == CK_ARRAY:\n"
-        out += indent + "    var a0 = Int(an.a)\n"
-        out += indent + "    for _j in range(Int(an.b)):\n"
-        if _starts(inner, "Box["):
+        out += indent + "var _lst = " + tn + "()\n"
+        out += indent + "var _alen = r.read_array_len()\n"
+        out += indent + "for _j in range(_alen):\n"
+        if tn == "List[Float64]":
+            out += indent + "    _lst.append(r.read_float64())\n"
+        elif tn == "List[String]":
+            out += indent + "    _lst.append(r.read_tstr())\n"
+        elif tn == "List[Int64]":
+            out += indent + "    _lst.append(r.read_int64())\n"
+        elif _starts(inner, "Box["):
             var rec = _cut(inner, 4, inner.byte_length() - 1)
-            out += indent + "        var _c = " + rec + "()\n"
-            out += indent + "        _c._from_node(tmp, tmp.kids[a0 + _j])\n"
-            out += indent + "        " + dest + ".append(Box(_c^))\n"
+            out += indent + "    var _c = " + rec + "()\n"
+            out += indent + "    _c.decode_from(r)\n"
+            out += indent + "    _lst.append(Box(_c^))\n"
         else:
-            out += indent + "        var _c = " + inner + "()\n"
-            out += indent + "        _c._from_node(tmp, tmp.kids[a0 + _j])\n"
-            out += indent + "        " + dest + ".append(_c^)\n"
-    elif _starts(tn, "Box["):
+            out += indent + "    var _c = " + inner + "()\n"
+            out += indent + "    _c.decode_from(r)\n"
+            out += indent + "    _lst.append(_c^)\n"
+        if opt:
+            out += indent + dest + " = Optional[" + tn + "](_lst^)\n"
+        else:
+            out += indent + dest + " = _lst^\n"
+        return out
+    if _starts(tn, "Box["):
         var rec2 = _cut(tn, 4, tn.byte_length() - 1)
         out += indent + "var _c = " + rec2 + "()\n"
-        out += indent + "_c._from_node(tmp, vn)\n"
+        out += indent + "_c.decode_from(r)\n"
         if opt:
             out += indent + dest + " = Optional[" + tn + "](Box(_c^))\n"
         else:
             out += indent + dest + " = Box(_c^)\n"
+        return out
+    out += indent + "var _c = " + tn + "()\n"
+    out += indent + "_c.decode_from(r)\n"
+    if opt:
+        out += indent + dest + " = Optional[" + tn + "](_c^)\n"
     else:
-        out += indent + "var _c = " + tn + "()\n"
-        out += indent + "_c._from_node(tmp, vn)\n"
-        if opt:
-            out += indent + dest + " = Optional[" + tn + "](_c^)\n"
-        else:
-            out += indent + dest + " = _c^\n"
+        out += indent + dest + " = _c^\n"
     return out
 
 
@@ -498,10 +498,15 @@ def emit_union(
     for i in range(len(br)):
         out += "        self.v" + String(i) + " = " + _zero_expr(tns[i]) + "\n"
     out += "\n    def encoded_len(self, options: EncodeOptions) -> Int:\n"
-    out += "        var w = WireWriter()\n"
-    out += "        self.encode_to(w, options)\n"
-    out += "        var b = w^.finish()\n"
-    out += "        return len(b)\n\n"
+    for i in range(len(br)):
+        if i == 0:
+            out += "        if self.tag == 0:\n"
+        else:
+            out += "        elif self.tag == " + String(i) + ":\n"
+        out += "            var n = 0\n"
+        out += _emit_len_value(String("            "), "self.v" + String(i), tns[i])
+        out += "            return n\n"
+    out += "        return 0\n\n"
     out += "    def encode_to(self, mut w: WireWriter, options: EncodeOptions):\n"
     for i in range(len(br)):
         if i == 0:
@@ -509,40 +514,35 @@ def emit_union(
         else:
             out += "        elif self.tag == " + String(i) + ":\n"
         out += _emit_write_value(String("            "), "self.v" + String(i), tns[i])
-    out += "\n    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:\n"
-    out += "        var vn = idx\n"
-    out += "        var node = tmp.nodes[idx]\n"
+    out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
+    out += "        var _hb = r.peek_head_byte()\n"
+    out += "        var _maj = _hb >> 5\n"
+    out += "        var _ai = _hb & 0x1F\n"
     for i in range(len(br)):
         var k = doc.types[br[i]].kind
         var cond = String("True")
         if k == CT_INT or k == CT_UINT:
-            cond = String("node.kind == CK_INT or node.kind == CK_UINT")
+            cond = String("_maj == 0 or _maj == 1")
         elif k == CT_TSTR:
-            cond = String("node.kind == CK_TEXT")
+            cond = String("_maj == 3")
         elif k == CT_BSTR:
-            cond = String("node.kind == CK_BYTES")
+            cond = String("_maj == 2")
         elif k == CT_BOOL:
-            cond = String("node.kind == CK_TRUE or node.kind == CK_FALSE")
+            cond = String("_maj == 7 and (_ai == 20 or _ai == 21)")
         elif k == CT_FLOAT:
-            cond = String(
-                "node.kind == CK_FLOAT16 or node.kind == CK_FLOAT32 or node.kind == CK_FLOAT64"
-            )
+            cond = String("_maj == 7 and (_ai == 25 or _ai == 26 or _ai == 27)")
         elif k == CT_STRUCT:
-            cond = String("node.kind == CK_MAP")
+            cond = String("_maj == 5")
         elif k == CT_ARRAY:
-            cond = String("node.kind == CK_ARRAY")
+            cond = String("_maj == 4")
         if i == 0:
             out += "        if " + cond + ":\n"
         else:
             out += "        elif " + cond + ":\n"
         out += "            self.tag = " + String(i) + "\n"
-        out += _emit_read_value(String("            "), "self.v" + String(i), tns[i], False)
+        out += _emit_decode_value(String("            "), "self.v" + String(i), tns[i], False)
         out += "            return\n"
-    out += "        raise DecodeError(DecodeError.KIND_TYPE, 0)\n\n"
-    out += "    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
-    out += "        var tmp = CborValue()\n"
-    out += "        var root = decode_item(r, tmp)\n"
-    out += "        self._from_node(tmp, root)\n"
+    out += "        raise DecodeError(DecodeError.KIND_TYPE, r.position())\n"
     return out
 
 
@@ -584,20 +584,24 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
     out += "):\n"
     for i in range(len(fields)):
         out += "        self." + fields[i] + " = " + fields[i] + "^\n"
-    out += "\n    def encoded_len(self, options: EncodeOptions) -> Int:\n"
-    out += "        var w = WireWriter()\n"
-    out += "        self.encode_to(w, options)\n"
-    out += "        var b = w^.finish()\n"
-    out += "        return len(b)\n\n"
-    out += "    def encode_to(self, mut w: WireWriter, options: EncodeOptions):\n"
-    out += "        var n = 0\n"
+    var req = 0
+    var has_opt = False
     for i in range(len(fields)):
         if opts[i]:
-            out += "        if self." + fields[i] + ":\n"
-            out += "            n += 1\n"
+            has_opt = True
         else:
-            out += "        n += 1\n"
-    out += "        w.write_map_len(n)\n"
+            req += 1
+    out += "\n    def encoded_len(self, options: EncodeOptions) -> Int:\n"
+    out += "        var n = 0\n"
+    if has_opt:
+        out += "        var _pairs = " + String(req) + "\n"
+        for i in range(len(fields)):
+            if opts[i]:
+                out += "        if self." + fields[i] + ":\n"
+                out += "            _pairs += 1\n"
+        out += "        n += encoded_head_len(UInt64(_pairs))\n"
+    else:
+        out += "        n += encoded_head_len(UInt64(" + String(req) + "))\n"
     for i in range(len(fields)):
         var indent = String("        ")
         var access = "self." + fields[i]
@@ -606,33 +610,54 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
             out += "        if self." + fields[i] + ":\n"
             indent = String("            ")
             access = "self." + fields[i] + ".value()"
-            # strip Optional[...]
             write_tn = _cut(types[i], 9, types[i].byte_length() - 1)
-        out += indent + "w.write_tstr(\"" + keys[i] + "\")\n"
-        out += _emit_write_value(indent, access, write_tn)
-    out += "\n    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:\n"
-    out += "        var node = tmp.nodes[idx]\n"
-    out += "        if node.kind != CK_MAP:\n"
-    out += "            raise DecodeError(DecodeError.KIND_TYPE, 0)\n"
-    out += "        var pairs = Int(node.b)\n"
-    out += "        var k0 = Int(node.a)\n"
-    out += "        for i in range(pairs):\n"
-    out += "            var kn = tmp.nodes[tmp.kids[k0 + i * 2]]\n"
-    out += "            if kn.kind != CK_TEXT:\n"
-    out += "                continue\n"
-    out += "            var key = tmp.texts[Int(kn.a)]\n"
-    out += "            var vn = tmp.kids[k0 + i * 2 + 1]\n"
+        out += indent + "n += encoded_tstr_len(" + String(keys[i].byte_length()) + ")\n"
+        out += _emit_len_value(indent, access, write_tn)
+    out += "        return n\n\n"
+    out += "    def encode_to(self, mut w: WireWriter, options: EncodeOptions):\n"
+    if has_opt:
+        out += "        var n = " + String(req) + "\n"
+        for i in range(len(fields)):
+            if opts[i]:
+                out += "        if self." + fields[i] + ":\n"
+                out += "            n += 1\n"
+        out += "        w.write_map_len(n)\n"
+    else:
+        out += "        w.write_map_len(" + String(req) + ")\n"
     for i in range(len(fields)):
-        out += "            if key == \"" + keys[i] + "\":\n"
+        var indent2 = String("        ")
+        var access2 = "self." + fields[i]
+        var write_tn2 = types[i]
+        if opts[i]:
+            out += "        if self." + fields[i] + ":\n"
+            indent2 = String("            ")
+            access2 = "self." + fields[i] + ".value()"
+            write_tn2 = _cut(types[i], 9, types[i].byte_length() - 1)
+        out += indent2 + "w.write_tstr(\"" + keys[i] + "\")\n"
+        out += _emit_write_value(indent2, access2, write_tn2)
+    out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
+    out += "        var _pairs = r.read_map_len()\n"
+    out += "        for _i in range(_pairs):\n"
+    out += "            var _ks = 0\n"
+    out += "            var _kn = 0\n"
+    out += "            if not r.take_definite_tstr(_ks, _kn):\n"
+    out += "                r.skip_item()\n"
+    out += "                continue\n"
+    for i in range(len(fields)):
         var read_tn = types[i]
         var dest = "self." + fields[i]
         if opts[i]:
             read_tn = _cut(types[i], 9, types[i].byte_length() - 1)
-        out += _emit_read_value(String("                "), dest, read_tn, opts[i])
-    out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
-    out += "        var tmp = CborValue()\n"
-    out += "        var root = decode_item(r, tmp)\n"
-    out += "        self._from_node(tmp, root)\n"
+        if i == 0:
+            out += "            if r.bytes_eq(_ks, _kn, \"" + keys[i] + "\"):\n"
+        else:
+            out += "            elif r.bytes_eq(_ks, _kn, \"" + keys[i] + "\"):\n"
+        out += _emit_decode_value(String("                "), dest, read_tn, opts[i])
+    if len(fields) == 0:
+        out += "            r.skip_item()\n"
+    else:
+        out += "            else:\n"
+        out += "                r.skip_item()\n"
     return out
 
 
