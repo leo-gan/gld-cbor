@@ -1,5 +1,9 @@
 # Instructions
 
+If you have not used CBOR before, start with [Why CBOR](why-cbor.md). That
+page explains the head byte, major types, preferred encoding, and diagnostic
+notation that the rest of these steps assume.
+
 ## Install Mojo 1.0.0
 
 ```bash

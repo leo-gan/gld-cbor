@@ -39,6 +39,9 @@ trailing bytes.
 
 ## Diagnostic notation
 
+[Why CBOR](why-cbor.md#diagnostic-notation) lists the text forms these
+functions read and write.
+
 ```mojo
 from cbor import decode_diag, encode_diag
 
