@@ -1,0 +1,41 @@
+; v2 test shapes. Ordinary testdata, not a product schema.
+
+Message = {
+  f_bool: bool,
+  f_int: int,
+  f_uint: uint,
+  f_float: float,
+  f_text: tstr,
+}
+
+Meta = {
+  ? note: tstr,
+}
+
+Item = {
+  name: tstr,
+  qty: int,
+}
+
+Document = {
+  id: tstr,
+  n: int,
+  meta: Meta,
+}
+
+Telemetry = {
+  values: [* float],
+}
+
+Strings = {
+  items: [* tstr],
+}
+
+Event = {
+  code: int,
+  ok: bool,
+}
+
+Batch_Message = {
+  items: [* Message],
+}

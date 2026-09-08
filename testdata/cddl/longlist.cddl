@@ -1,0 +1,4 @@
+LongList = {
+  value: int,
+  ? next: LongList,
+}

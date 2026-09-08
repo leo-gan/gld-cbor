@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Fail if generated Mojo is out of date. Becomes real once codegen exists.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+if [[ ! -f src/codegen/cli.mojo ]]; then
+  echo "codegen CLI not present yet; skip"
+  exit 0
+fi
+if [[ ! -f testdata/cddl/benchmark_v2.cddl ]]; then
+  echo "no benchmark CDDL yet; skip"
+  exit 0
+fi
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+if command -v mojo >/dev/null 2>&1; then
+  MOJO=(mojo)
+else
+  MOJO=(pixi run mojo)
+fi
+"${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/benchmark_v2.cddl --out "$tmp"
+if [[ -f tests/generated/Message.mojo ]]; then
+  if ! diff -u tests/generated/Message.mojo "$tmp/Message.mojo"; then
+    echo "generated Message.mojo is stale; run scripts/generate.sh" >&2
+    exit 1
+  fi
+fi
+echo "generated sources match"

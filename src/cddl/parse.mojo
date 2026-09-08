@@ -1,0 +1,242 @@
+from std.collections import List, Span
+
+from cddl.model import (
+    CT_ANY,
+    CT_ARRAY,
+    CT_BOOL,
+    CT_BSTR,
+    CT_CHOICE,
+    CT_FLOAT,
+    CT_INT,
+    CT_NAMED,
+    CT_NULL,
+    CT_OPTIONAL,
+    CT_STRUCT,
+    CT_TAG,
+    CT_TSTR,
+    CT_UINT,
+    CddlDoc,
+    CddlMember,
+    CddlType,
+)
+from runtime.error import DecodeError
+
+
+struct _Lex[origin: ImmOrigin](Movable):
+    var data: Span[Byte, Self.origin]
+    var pos: Int
+
+    def __init__(out self, data: Span[Byte, Self.origin]):
+        self.data = data
+        self.pos = 0
+
+    def peek(self) -> Int:
+        if self.pos >= len(self.data):
+            return -1
+        return Int(self.data[self.pos])
+
+    def skip(mut self):
+        while self.pos < len(self.data):
+            var c = Int(self.data[self.pos])
+            if c == 32 or c == 9 or c == 10 or c == 13:
+                self.pos += 1
+                continue
+            if c == 59:
+                while self.pos < len(self.data) and Int(self.data[self.pos]) != 10:
+                    self.pos += 1
+                continue
+            break
+
+
+def _is_ident_start(c: Int) -> Bool:
+    return (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95
+
+
+def _is_ident(c: Int) -> Bool:
+    return _is_ident_start(c) or (c >= 48 and c <= 57) or c == 45
+
+
+def _slice_str[origin: ImmOrigin](data: Span[Byte, origin], start: Int, end: Int) raises DecodeError -> String:
+    try:
+        return String(from_utf8=data[start:end])
+    except _:
+        raise DecodeError(DecodeError.KIND_CDDL, start)
+
+
+def _ident[origin: ImmOrigin](mut p: _Lex[origin]) raises DecodeError -> String:
+    p.skip()
+    if not _is_ident_start(p.peek()):
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    var start = p.pos
+    p.pos += 1
+    while _is_ident(p.peek()):
+        p.pos += 1
+    return _slice_str(p.data, start, p.pos)
+
+
+def _eat[origin: ImmOrigin](mut p: _Lex[origin], ch: Int) raises DecodeError:
+    p.skip()
+    if p.peek() != ch:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    p.pos += 1
+
+
+def _prelude(name: String) -> Int:
+    if name == "any":
+        return CT_ANY
+    if name == "bool":
+        return CT_BOOL
+    if name == "int" or name == "integer" or name == "bigint" or name == "nint":
+        return CT_INT
+    if name == "uint":
+        return CT_UINT
+    if name == "tstr" or name == "text":
+        return CT_TSTR
+    if name == "bstr" or name == "bytes":
+        return CT_BSTR
+    if (
+        name == "float"
+        or name == "float16"
+        or name == "float32"
+        or name == "float64"
+        or name == "number"
+    ):
+        return CT_FLOAT
+    if name == "null" or name == "nil":
+        return CT_NULL
+    return -1
+
+
+def _parse_type[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    var left = _parse_type1(p, doc)
+    p.skip()
+    if p.peek() != 47:
+        return left
+    # choice: left / right / ...
+    var first = left
+    while True:
+        p.skip()
+        if p.peek() != 47:
+            break
+        p.pos += 1
+        # reject //
+        if p.peek() == 47:
+            raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+        var right = _parse_type1(p, doc)
+        first = doc.add_type(CddlType(CT_CHOICE, inner=first, inner2=right))
+    return first
+
+
+def _parse_type1[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    p.skip()
+    # reject ~
+    if p.peek() == 126:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    if p.peek() == 123:
+        return _parse_struct(p, doc)
+    if p.peek() == 91:
+        return _parse_array(p, doc)
+    if p.peek() == 35:
+        return _parse_tag(p, doc)
+    var name = _ident(p)
+    var pk = _prelude(name)
+    if pk >= 0:
+        return doc.add_type(CddlType(pk, name=name))
+    return doc.add_type(CddlType(CT_NAMED, name=name))
+
+
+def _parse_tag[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    _eat(p, 35)
+    if p.peek() != 54:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    p.pos += 1
+    _eat(p, 46)
+    var n: UInt64 = 0
+    if p.peek() < 48 or p.peek() > 57:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    while p.peek() >= 48 and p.peek() <= 57:
+        n = n * UInt64(10) + UInt64(p.peek() - 48)
+        p.pos += 1
+    p.skip()
+    var inner = -1
+    if p.peek() == 40:
+        p.pos += 1
+        inner = _parse_type(p, doc)
+        _eat(p, 41)
+    return doc.add_type(CddlType(CT_TAG, tag=n, inner=inner))
+
+
+def _parse_struct[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    _eat(p, 123)
+    var start = len(doc.members)
+    var count = 0
+    p.skip()
+    while p.peek() != 125 and p.peek() != -1:
+        var optional = False
+        if p.peek() == 63:
+            optional = True
+            p.pos += 1
+            p.skip()
+        if p.peek() == 42:
+            # open map * tstr => T — treat as remaining catch-all, skip to }
+            raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+        var name = _ident(p)
+        p.skip()
+        _eat(p, 58)
+        var ty = _parse_type(p, doc)
+        doc.members.append(CddlMember(name, ty, optional))
+        count += 1
+        p.skip()
+        if p.peek() == 44:
+            p.pos += 1
+            p.skip()
+    _eat(p, 125)
+    return doc.add_type(
+        CddlType(CT_STRUCT, members_start=start, members_count=count)
+    )
+
+
+def _parse_array[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    _eat(p, 91)
+    p.skip()
+    var omin = 1
+    var omax = 1
+    if p.peek() == 42:
+        omin = 0
+        omax = -1
+        p.pos += 1
+        p.skip()
+    elif p.peek() == 43:
+        omin = 1
+        omax = -1
+        p.pos += 1
+        p.skip()
+    elif p.peek() == 63:
+        omin = 0
+        omax = 1
+        p.pos += 1
+        p.skip()
+    var inner = _parse_type(p, doc)
+    _eat(p, 93)
+    return doc.add_type(
+        CddlType(CT_ARRAY, inner=inner, occur_min=omin, occur_max=omax)
+    )
+
+
+def parse_cddl(text: String) raises DecodeError -> CddlDoc:
+    var b = text.as_bytes()
+    var p = _Lex(b)
+    var doc = CddlDoc()
+    p.skip()
+    while p.peek() != -1:
+        var name = _ident(p)
+        p.skip()
+        _eat(p, 61)
+        # reject /= as extend only if we see /= after eating =... `/=` starts with /
+        var ty = _parse_type(p, doc)
+        doc.def_names.append(name)
+        doc.def_types.append(ty)
+        p.skip()
+    if len(doc.def_names) == 0:
+        raise DecodeError(DecodeError.KIND_CDDL, 0)
+    return doc^

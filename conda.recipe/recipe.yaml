@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/prefix-dev/recipe-format/main/schema.json
+context:
+  version: "0.1.0"
+
+package:
+  name: mojo-cbor
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  script:
+    - mkdir -p ${{ PREFIX }}/lib/mojo ${{ PREFIX }}/bin
+    - mojo precompile -I src src/wire -o ${{ PREFIX }}/lib/mojo/wire.mojoc
+    - mojo precompile -I src src/cddl -o ${{ PREFIX }}/lib/mojo/cddl.mojoc
+    - mojo precompile -I src src/runtime -o ${{ PREFIX }}/lib/mojo/runtime.mojoc
+    - mojo precompile -I src src/diag -o ${{ PREFIX }}/lib/mojo/diag.mojoc
+    - mojo precompile -I src src/cbor -o ${{ PREFIX }}/lib/mojo/cbor.mojoc
+    - mojo build -I src src/codegen/cli.mojo -o ${{ PREFIX }}/bin/gld-cborgen-mojo
+
+requirements:
+  build:
+    - mojo-compiler ==1.0.0
+  host:
+    - mojo-compiler ==1.0.0
+  run:
+    - ${{ pin_compatible('mojo-compiler') }}
+
+tests:
+  - script:
+      - if: unix
+        then:
+          - mojo run test_import.mojo
+          - gld-cborgen-mojo --help
+    files:
+      recipe:
+        - test_import.mojo
+
+about:
+  homepage: https://leo-gan.github.io/gld-cbor/
+  repository: https://github.com/leo-gan/gld-cbor
+  documentation: https://leo-gan.github.io/gld-cbor/
+  license: MIT
+  license_file: LICENSE
+  summary: From-scratch CBOR library for Mojo
+  description: |
+    Runtime and code generator written in Mojo. Does not wrap libcbor
+    or any other C, C++, or Rust CBOR library. The package installs
+    cbor.mojoc (plus wire/cddl/runtime/diag) and the
+    gld-cborgen-mojo CLI.
