@@ -393,6 +393,21 @@ def encode_value(
     return w^.finish()
 
 
+def node_as_float(v: CborValue, idx: Int) raises DecodeError -> Float64:
+    var n = v.nodes[idx]
+    if n.kind == CK_INT:
+        return Float64(n.a)
+    if n.kind == CK_UINT:
+        return Float64(n.b)
+    if n.kind == CK_FLOAT16:
+        return half_to_f64(UInt16(n.b))
+    if n.kind == CK_FLOAT32:
+        return Float64(f32_from_bits(UInt32(n.b)))
+    if n.kind == CK_FLOAT64:
+        return f64_from_bits(n.b)
+    raise DecodeError(DecodeError.KIND_TYPE, 0)
+
+
 def decode_strict[origin: ImmOrigin](buf: Span[Byte, origin]) raises DecodeError -> CborValue:
     var v = decode_value(buf)
     var again = encode_value(v, EncodeOptions.cde)

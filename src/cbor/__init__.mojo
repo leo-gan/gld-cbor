@@ -43,6 +43,7 @@ from runtime.value import (
     decode_strict,
     decode_value,
     encode_value,
+    node_as_float,
 )
 from wire.reader import WireReader
 from wire.writer import WireWriter

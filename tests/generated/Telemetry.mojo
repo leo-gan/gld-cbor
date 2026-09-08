@@ -7,6 +7,7 @@ from cbor import (
     WireReader,
     WireWriter,
     decode_value,
+    node_as_float,
     CK_ARRAY,
     CK_BYTES,
     CK_FALSE,
@@ -39,7 +40,9 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         n += 1
         w.write_map_len(n)
         w.write_tstr("values")
-        self.values.encode_to(w, options)
+        w.write_array_len(len(self.values))
+        for _i in range(len(self.values)):
+            w.write_float_preferred(self.values[_i])
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var tmp = CborValue()
@@ -56,5 +59,10 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             var key = tmp.texts[Int(kn.a)]
             var vn = tmp.kids[k0 + i * 2 + 1]
             if key == "values":
-                pass
+                self.values = List[Float64]()
+                var an = tmp.nodes[vn]
+                if an.kind == CK_ARRAY:
+                    var a0 = Int(an.a)
+                    for _j in range(Int(an.b)):
+                        self.values.append(node_as_float(tmp, tmp.kids[a0 + _j]))
 
