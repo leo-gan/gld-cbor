@@ -22,6 +22,9 @@ from cddl.model import (
     CT_UNWRAP,
     CT_VALUE,
     CddlDoc,
+    CK_INT_KEY,
+    CK_POS_KEY,
+    CK_TEXT_KEY,
     CddlMember,
     CddlType,
 )
@@ -78,6 +81,41 @@ def _ident[origin: ImmOrigin](mut p: _Lex[origin]) raises DecodeError -> String:
     while _is_ident(p.peek()):
         p.pos += 1
     return _slice_str(p.data, start, p.pos)
+
+
+def _parse_int64[origin: ImmOrigin](mut p: _Lex[origin]) raises DecodeError -> Int64:
+    p.skip()
+    var neg = False
+    if p.peek() == 45:
+        neg = True
+        p.pos += 1
+    if p.peek() < 48 or p.peek() > 57:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    var n: Int64 = 0
+    while p.peek() >= 48 and p.peek() <= 57:
+        n = n * Int64(10) + Int64(p.peek() - 48)
+        p.pos += 1
+    if neg:
+        return -n
+    return n
+
+
+def _eat_colon_or_arrow[origin: ImmOrigin](mut p: _Lex[origin]) raises DecodeError:
+    p.skip()
+    if p.peek() == 58:
+        p.pos += 1
+        return
+    if p.peek() == 61:
+        p.pos += 1
+        _eat(p, 62)
+        return
+    raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+
+
+def _int_field_name(n: Int64) -> String:
+    if n >= Int64(0):
+        return String("k") + String(n)
+    return String("k_") + String(-n)
 
 
 def _eat[origin: ImmOrigin](mut p: _Lex[origin], ch: Int) raises DecodeError:
@@ -276,11 +314,25 @@ def _parse_struct[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) rais
                 p.pos += 1
                 p.skip()
             continue
+        var ch = p.peek()
+        if (ch >= 48 and ch <= 57) or ch == 45:
+            var ik = _parse_int64(p)
+            _eat_colon_or_arrow(p)
+            var ity = _parse_type(p, doc)
+            doc.members.append(
+                CddlMember(_int_field_name(ik), ity, optional, CK_INT_KEY, ik)
+            )
+            count += 1
+            p.skip()
+            if p.peek() == 44:
+                p.pos += 1
+                p.skip()
+            continue
         var name = _ident(p)
         p.skip()
-        _eat(p, 58)
+        _eat_colon_or_arrow(p)
         var ty = _parse_type(p, doc)
-        doc.members.append(CddlMember(name, ty, optional))
+        doc.members.append(CddlMember(name, ty, optional, CK_TEXT_KEY, Int64(0)))
         count += 1
         p.skip()
         if p.peek() == 44:
@@ -297,6 +349,7 @@ def _parse_array[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raise
     p.skip()
     var omin = 1
     var omax = 1
+    var star = p.peek() == 42 or p.peek() == 43
     if p.peek() == 42:
         omin = 0
         omax = -1
@@ -307,15 +360,72 @@ def _parse_array[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raise
         omax = -1
         p.pos += 1
         p.skip()
-    elif p.peek() == 63:
-        omin = 0
-        omax = 1
-        p.pos += 1
+    if star:
+        var inner = _parse_type(p, doc)
+        _eat(p, 93)
+        return doc.add_type(
+            CddlType(CT_ARRAY, inner=inner, occur_min=omin, occur_max=omax)
+        )
+    var start = len(doc.members)
+    var count = 0
+    var named = False
+    while p.peek() != 93 and p.peek() != -1:
+        var optional = False
+        if p.peek() == 63:
+            optional = True
+            p.pos += 1
+            p.skip()
+            if count == 0 and p.peek() != -1 and not _is_ident_start(p.peek()):
+                var inner2 = _parse_type(p, doc)
+                _eat(p, 93)
+                return doc.add_type(
+                    CddlType(CT_ARRAY, inner=inner2, occur_min=0, occur_max=1)
+                )
+        if _is_ident_start(p.peek()):
+            var save = p.pos
+            var ident = _ident(p)
+            p.skip()
+            if p.peek() == 58:
+                p.pos += 1
+                var ty = _parse_type(p, doc)
+                doc.members.append(
+                    CddlMember(ident, ty, optional, CK_POS_KEY, Int64(count))
+                )
+                named = True
+            else:
+                p.pos = save
+                var ty2 = _parse_type(p, doc)
+                doc.members.append(
+                    CddlMember(
+                        String("e") + String(count), ty2, optional, CK_POS_KEY, Int64(count)
+                    )
+                )
+        else:
+            var ty3 = _parse_type(p, doc)
+            doc.members.append(
+                CddlMember(
+                    String("e") + String(count), ty3, optional, CK_POS_KEY, Int64(count)
+                )
+            )
+        count += 1
         p.skip()
-    var inner = _parse_type(p, doc)
+        if p.peek() == 44:
+            p.pos += 1
+            p.skip()
+            continue
+        break
     _eat(p, 93)
+    if count == 1 and not named:
+        var only = doc.members[start]
+        if only.optional:
+            return doc.add_type(
+                CddlType(CT_ARRAY, inner=only.type_idx, occur_min=0, occur_max=1)
+            )
+        return doc.add_type(
+            CddlType(CT_ARRAY, inner=only.type_idx, occur_min=1, occur_max=1)
+        )
     return doc.add_type(
-        CddlType(CT_ARRAY, inner=inner, occur_min=omin, occur_max=omax)
+        CddlType(CT_STRUCT, name=String("[]"), members_start=start, members_count=count)
     )
 
 
