@@ -17,6 +17,20 @@ def test_message_roundtrip() raises:
     assert_equal(m2.f_text, String("hi"))
 
 
+def test_manual_cde_key_order() raises:
+    var m = Message(True, Int64(150), UInt64(7), 1.5, String("hi"))
+    var buf = encode(m, EncodeOptions.cde)
+    assert_equal(m.encoded_len(EncodeOptions.cde), len(buf))
+    assert_equal(Int(buf[0]), 0xA5)
+    assert_equal(Int(buf[1]), 0x65)
+    var m2 = decode[Message](buf)
+    assert_true(m2.f_bool)
+    assert_equal(m2.f_int, Int64(150))
+    assert_equal(m2.f_uint, UInt64(7))
+    assert_true(m2.f_float == 1.5)
+    assert_equal(m2.f_text, String("hi"))
+
+
 def test_manual_reads_cbor2_golden() raises:
     # Official cbor2 bytes for the Message map (float is binary64).
     var buf = bytes_of(

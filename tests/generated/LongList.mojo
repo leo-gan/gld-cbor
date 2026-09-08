@@ -46,11 +46,18 @@ struct LongList(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         if self.next:
             n += 1
         w.write_map_len(n)
-        w.write_tstr("value")
-        w.write_int(self.value)
-        if self.next:
-            w.write_tstr("next")
-            self.next.value()[].encode_to(w, options)
+        if options.is_cde():
+            if self.next:
+                w.write_bytes(String("\x64\x6e\x65\x78\x74").as_bytes())
+                self.next.value()[].encode_to(w, options)
+            w.write_bytes(String("\x65\x76\x61\x6c\x75\x65").as_bytes())
+            w.write_int(self.value)
+        else:
+            w.write_bytes(String("\x65\x76\x61\x6c\x75\x65").as_bytes())
+            w.write_int(self.value)
+            if self.next:
+                w.write_bytes(String("\x64\x6e\x65\x78\x74").as_bytes())
+                self.next.value()[].encode_to(w, options)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
@@ -60,11 +67,17 @@ struct LongList(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "value"):
-                self.value = r.read_int64()
-            elif r.bytes_eq(_ks, _kn, "next"):
-                var _c = LongList()
-                _c.decode_from(r)
-                self.next = Optional[Box[LongList]](Box(_c^))
+            if _kn == 5:
+                if r.bytes_eq(_ks, _kn, "value"):
+                    self.value = r.read_int64()
+                else:
+                    r.skip_item()
+            elif _kn == 4:
+                if r.bytes_eq(_ks, _kn, "next"):
+                    var _c = LongList()
+                    _c.decode_from(r)
+                    self.next = Optional[Box[LongList]](Box(_c^))
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

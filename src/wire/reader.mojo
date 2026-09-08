@@ -72,8 +72,7 @@ struct WireReader[origin: ImmOrigin](Movable):
             raise DecodeError(DecodeError.KIND_RANGE, self.pos)
         if n > self.remaining():
             raise DecodeError(DecodeError.KIND_EOF, self.pos)
-        var out = List[Byte](capacity=n)
-        out.resize(n, Byte(0))
+        var out = List[Byte](unsafe_uninit_length=n)
         if n > 0:
             unsafe_memcpy(
                 dest=out.unsafe_ptr(),
@@ -82,6 +81,23 @@ struct WireReader[origin: ImmOrigin](Movable):
             )
         self.pos += n
         return out^
+
+    def append_exact(mut self, mut dest: List[Byte], n: Int) raises DecodeError:
+        """Copy the next `n` input bytes onto `dest` with one memcpy."""
+        if n < 0 or n > MAX_ITEM_BYTES:
+            raise DecodeError(DecodeError.KIND_RANGE, self.pos)
+        if n > self.remaining():
+            raise DecodeError(DecodeError.KIND_EOF, self.pos)
+        if n == 0:
+            return
+        var start = len(dest)
+        dest.resize(unsafe_uninit_length=start + n)
+        unsafe_memcpy(
+            dest=dest.unsafe_ptr().unsafe_offset(start),
+            src=self.data.unsafe_ptr().unsafe_offset(self.pos),
+            count=n,
+        )
+        self.pos += n
 
     def read_text_exact(mut self, n: Int) raises DecodeError -> String:
         var at = self.pos

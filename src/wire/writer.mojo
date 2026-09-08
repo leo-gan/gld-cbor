@@ -48,7 +48,7 @@ struct WireWriter(Movable):
         if n == 0:
             return
         var start = len(self.buf)
-        self.buf.resize(start + n, Byte(0))
+        self.buf.resize(unsafe_uninit_length=start + n)
         unsafe_memcpy(
             dest=self.buf.unsafe_ptr().unsafe_offset(start),
             src=data.unsafe_ptr(),
@@ -59,7 +59,7 @@ struct WireWriter(Movable):
         if n <= 0:
             return
         var dst = len(self.buf)
-        self.buf.resize(dst + n, Byte(0))
+        self.buf.resize(unsafe_uninit_length=dst + n)
         unsafe_memcpy(
             dest=self.buf.unsafe_ptr().unsafe_offset(dst),
             src=src.unsafe_ptr().unsafe_offset(start),

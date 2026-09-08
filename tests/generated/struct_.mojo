@@ -39,9 +39,9 @@ struct struct_(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(2)
-        w.write_tstr("fn")
+        w.write_bytes(String("\x62\x66\x6e").as_bytes())
         w.write_int(self.fn_)
-        w.write_tstr("var")
+        w.write_bytes(String("\x63\x76\x61\x72").as_bytes())
         w.write_tstr(self.var_)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
@@ -52,9 +52,15 @@ struct struct_(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "fn"):
-                self.fn_ = r.read_int64()
-            elif r.bytes_eq(_ks, _kn, "var"):
-                self.var_ = r.read_tstr()
+            if _kn == 2:
+                if r.bytes_eq(_ks, _kn, "fn"):
+                    self.fn_ = r.read_int64()
+                else:
+                    r.skip_item()
+            elif _kn == 3:
+                if r.bytes_eq(_ks, _kn, "var"):
+                    self.var_ = r.read_tstr()
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

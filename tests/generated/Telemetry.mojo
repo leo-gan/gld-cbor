@@ -36,7 +36,7 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(1)
-        w.write_tstr("values")
+        w.write_bytes(String("\x66\x76\x61\x6c\x75\x65\x73").as_bytes())
         w.write_array_len(len(self.values))
         for _i in range(len(self.values)):
             w.write_float_preferred(self.values[_i])
@@ -49,11 +49,14 @@ struct Telemetry(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "values"):
-                var _lst = List[Float64]()
-                var _alen = r.read_array_len()
-                for _j in range(_alen):
-                    _lst.append(r.read_float64())
-                self.values = _lst^
+            if _kn == 6:
+                if r.bytes_eq(_ks, _kn, "values"):
+                    var _lst = List[Float64]()
+                    var _alen = r.read_array_len()
+                    for _j in range(_alen):
+                        _lst.append(r.read_float64())
+                    self.values = _lst^
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()
