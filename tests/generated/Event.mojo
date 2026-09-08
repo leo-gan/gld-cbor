@@ -7,6 +7,7 @@ from cbor import (
     WireReader,
     WireWriter,
     decode_value,
+    node_as_float,
     CK_ARRAY,
     CK_BYTES,
     CK_FALSE,

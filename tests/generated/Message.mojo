@@ -7,6 +7,7 @@ from cbor import (
     WireReader,
     WireWriter,
     decode_value,
+    node_as_float,
     CK_ARRAY,
     CK_BYTES,
     CK_FALSE,
@@ -87,7 +88,7 @@ struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
                     uval = UInt64(uv.a)
                 self.f_uint = uval
             if key == "f_float":
-                self.f_float = 0.0
+                self.f_float = node_as_float(tmp, vn)
             if key == "f_text":
                 self.f_text = tmp.texts[Int(tmp.nodes[vn].a)]
 

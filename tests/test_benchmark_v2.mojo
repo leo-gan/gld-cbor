@@ -9,6 +9,7 @@ def test_message_roundtrip() raises:
     m.f_bool = True
     m.f_int = Int64(150)
     m.f_uint = UInt64(7)
+    m.f_float = 1.0
     m.f_text = String("hi")
     var buf = encode(m)
     assert_true(len(buf) > 0)
@@ -16,6 +17,7 @@ def test_message_roundtrip() raises:
     assert_equal(m2.f_bool, True)
     assert_equal(m2.f_int, Int64(150))
     assert_equal(m2.f_uint, UInt64(7))
+    assert_true(m2.f_float == 1.0)
     assert_equal(m2.f_text, "hi")
 
 

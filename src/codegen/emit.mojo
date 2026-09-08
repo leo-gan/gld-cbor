@@ -125,6 +125,7 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
     out += "    WireReader,\n"
     out += "    WireWriter,\n"
     out += "    decode_value,\n"
+    out += "    node_as_float,\n"
     out += "    CK_ARRAY,\n"
     out += "    CK_BYTES,\n"
     out += "    CK_FALSE,\n"
@@ -215,6 +216,18 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
             out += indent + "w.write_tstr(" + access + ")\n"
         elif tn4 == "List[Byte]":
             out += indent + "w.write_bstr(" + access + ")\n"
+        elif tn4 == "List[Float64]":
+            out += indent + "w.write_array_len(len(" + access + "))\n"
+            out += indent + "for _i in range(len(" + access + ")):\n"
+            out += indent + "    w.write_float_preferred(" + access + "[_i])\n"
+        elif tn4 == "List[String]":
+            out += indent + "w.write_array_len(len(" + access + "))\n"
+            out += indent + "for _i in range(len(" + access + ")):\n"
+            out += indent + "    w.write_tstr(" + access + "[_i])\n"
+        elif tn4 == "List[Int64]":
+            out += indent + "w.write_array_len(len(" + access + "))\n"
+            out += indent + "for _i in range(len(" + access + ")):\n"
+            out += indent + "    w.write_int(" + access + "[_i])\n"
         else:
             out += indent + access + ".encode_to(w, options)\n"
     out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
@@ -260,14 +273,36 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
                 out += "                self." + field5 + " = uval\n"
         elif tn5 == "Float64":
             if opt5:
-                out += "                self." + field5 + " = Optional[Float64](0.0)\n"
+                out += "                self." + field5 + " = Optional[Float64](node_as_float(tmp, vn))\n"
             else:
-                out += "                self." + field5 + " = 0.0\n"
+                out += "                self." + field5 + " = node_as_float(tmp, vn)\n"
         elif tn5 == "String":
             if opt5:
                 out += "                self." + field5 + " = Optional[String](tmp.texts[Int(tmp.nodes[vn].a)])\n"
             else:
                 out += "                self." + field5 + " = tmp.texts[Int(tmp.nodes[vn].a)]\n"
+        elif tn5 == "List[Float64]":
+            out += "                self." + field5 + " = List[Float64]()\n"
+            out += "                var an = tmp.nodes[vn]\n"
+            out += "                if an.kind == CK_ARRAY:\n"
+            out += "                    var a0 = Int(an.a)\n"
+            out += "                    for _j in range(Int(an.b)):\n"
+            out += (
+                "                        self."
+                + field5
+                + ".append(node_as_float(tmp, tmp.kids[a0 + _j]))\n"
+            )
+        elif tn5 == "List[String]":
+            out += "                self." + field5 + " = List[String]()\n"
+            out += "                var an = tmp.nodes[vn]\n"
+            out += "                if an.kind == CK_ARRAY:\n"
+            out += "                    var a0 = Int(an.a)\n"
+            out += "                    for _j in range(Int(an.b)):\n"
+            out += (
+                "                        self."
+                + field5
+                + ".append(tmp.texts[Int(tmp.nodes[tmp.kids[a0 + _j]].a)])\n"
+            )
         else:
             out += "                pass\n"
     out += "\n"
