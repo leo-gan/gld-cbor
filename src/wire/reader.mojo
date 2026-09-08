@@ -229,6 +229,23 @@ struct WireReader[origin: ImmOrigin](Movable):
             return
         raise DecodeError(DecodeError.KIND_TYPE, at)
 
+    def take_int_key(mut self, mut key: Int64) raises DecodeError -> Bool:
+        """If the next item is an integer, consume it into `key`."""
+        var at = self.pos
+        var h = self.read_head()
+        if h[0] == 0:
+            if h[1] > UInt64(Int64.MAX):
+                raise DecodeError(DecodeError.KIND_RANGE, at)
+            key = Int64(h[1])
+            return True
+        if h[0] == 1:
+            if h[1] > UInt64(Int64.MAX):
+                raise DecodeError(DecodeError.KIND_RANGE, at)
+            key = -(Int64(h[1]) + Int64(1))
+            return True
+        self.skip_body(h[0], h[1], h[2], at)
+        return False
+
     def take_definite_tstr(mut self, mut start: Int, mut n: Int) raises DecodeError -> Bool:
         """If the next item is a definite tstr, consume it and set `start`/`n` to the payload."""
         var at = self.pos

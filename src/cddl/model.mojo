@@ -23,15 +23,31 @@ comptime CT_VALUE = 18
 comptime CT_UNWRAP = 19
 
 
+comptime CK_TEXT_KEY = 0
+comptime CK_INT_KEY = 1
+comptime CK_POS_KEY = 2
+
+
 struct CddlMember(Copyable, ImplicitlyCopyable, Movable):
     var name: String
     var type_idx: Int
     var optional: Bool
+    var key_kind: Int
+    var key_int: Int64
 
-    def __init__(out self, name: String, type_idx: Int, optional: Bool = False):
+    def __init__(
+        out self,
+        name: String,
+        type_idx: Int,
+        optional: Bool = False,
+        key_kind: Int = 0,
+        key_int: Int64 = 0,
+    ):
         self.name = name
         self.type_idx = type_idx
         self.optional = optional
+        self.key_kind = key_kind
+        self.key_int = key_int
 
 
 struct CddlType(Copyable, ImplicitlyCopyable, Movable):

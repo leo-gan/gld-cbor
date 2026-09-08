@@ -1,6 +1,7 @@
 from std.testing import TestSuite, assert_equal, assert_true
 
 from cddl.model import (
+    CK_INT_KEY,
     CT_CONTROL,
     CT_GENERIC,
     CT_REGEXP,
@@ -117,6 +118,26 @@ def test_import_export_catalog() raises:
             holder += 1
     assert_equal(leaf, 1)
     assert_equal(holder, 1)
+
+
+def test_parse_int_keys() raises:
+    var doc = parse_cddl_file("testdata/cddl/intkeys.cddl")
+    var ty = doc.types[doc.def_types[0]]
+    assert_equal(ty.kind, CT_STRUCT)
+    assert_equal(ty.members_count, 3)
+    var m0 = doc.members[ty.members_start]
+    assert_equal(m0.key_kind, CK_INT_KEY)
+    assert_equal(m0.key_int, Int64(0))
+    assert_equal(m0.name, "k0")
+
+
+def test_parse_tuple_array() raises:
+    var doc = parse_cddl_file("testdata/cddl/tuple.cddl")
+    var ty = doc.types[doc.def_types[0]]
+    assert_equal(ty.kind, CT_STRUCT)
+    assert_equal(ty.name, "[]")
+    assert_equal(ty.members_count, 3)
+    assert_equal(doc.members[ty.members_start].name, "f_bool")
 
 
 def test_include_one_file() raises:

@@ -17,3 +17,5 @@ fi
 "${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/mutual_ab.cddl --out tests/generated
 "${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/keywords.cddl --out tests/generated
 "${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/union.cddl --out tests/generated
+"${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/intkeys.cddl --out tests/generated
+"${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/tuple.cddl --out tests/generated

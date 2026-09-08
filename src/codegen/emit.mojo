@@ -1,6 +1,9 @@
 from std.collections import List
 
 from cddl.model import (
+    CK_INT_KEY,
+    CK_POS_KEY,
+    CK_TEXT_KEY,
     CT_ANY,
     CT_ARRAY,
     CT_BOOL,
@@ -51,6 +54,43 @@ def _hex2(n: Int) -> String:
         return String("00")
 
 
+def _int_encoded_bytes(n: Int64) -> List[Byte]:
+    var out = List[Byte]()
+    if n >= Int64(0):
+        var u = UInt64(n)
+        if u < UInt64(24):
+            out.append(Byte(Int(u)))
+            return out^
+        if u < UInt64(256):
+            out.append(Byte(0x18))
+            out.append(Byte(Int(u)))
+            return out^
+        if u < UInt64(65536):
+            out.append(Byte(0x19))
+            out.append(Byte(Int((u >> UInt64(8)) & UInt64(255))))
+            out.append(Byte(Int(u & UInt64(255))))
+            return out^
+        out.append(Byte(0x1A))
+        var i = 4
+        while i > 0:
+            i -= 1
+            var shift = UInt64(i) * UInt64(8)
+            out.append(Byte(Int((u >> shift) & UInt64(255))))
+        return out^
+    var mag = UInt64(-(n + Int64(1)))
+    if mag < UInt64(24):
+        out.append(Byte(0x20 + Int(mag)))
+        return out^
+    if mag < UInt64(256):
+        out.append(Byte(0x38))
+        out.append(Byte(Int(mag)))
+        return out^
+    out.append(Byte(0x39))
+    out.append(Byte(Int((mag >> UInt64(8)) & UInt64(255))))
+    out.append(Byte(Int(mag & UInt64(255))))
+    return out^
+
+
 def _tstr_encoded_bytes(name: String) -> List[Byte]:
     var payload = name.as_bytes()
     var n = len(payload)
@@ -87,13 +127,11 @@ def _encoded_bytes_lt(a: List[Byte], b: List[Byte]) -> Bool:
     return len(a) < len(b)
 
 
-def _cde_key_order(keys: List[String]) -> List[Int]:
-    var enc = List[List[Byte]]()
+def _cde_order_enc(enc: List[List[Byte]]) -> List[Int]:
     var order = List[Int]()
-    for i in range(len(keys)):
-        enc.append(_tstr_encoded_bytes(keys[i]))
+    for i in range(len(enc)):
         order.append(i)
-    for i in range(len(keys)):
+    for i in range(len(enc)):
         var j = i
         while j > 0:
             if _encoded_bytes_lt(enc[order[j]], enc[order[j - 1]]):
@@ -104,6 +142,13 @@ def _cde_key_order(keys: List[String]) -> List[Int]:
             else:
                 break
     return order^
+
+
+def _cde_key_order(keys: List[String]) -> List[Int]:
+    var enc = List[List[Byte]]()
+    for i in range(len(keys)):
+        enc.append(_tstr_encoded_bytes(keys[i]))
+    return _cde_order_enc(enc)
 
 
 def _same_order(a: List[Int], b: List[Int]) -> Bool:
@@ -567,7 +612,7 @@ def _emit_struct_pairs(
             inner_indent = indent + "    "
             access = "self." + fields[i] + ".value()"
             write_tn = _cut(types[i], 9, types[i].byte_length() - 1)
-        out += inner_indent + "w.write_bytes(" + key_lits[i] + ")\n"
+        out += inner_indent + key_lits[i]
         out += _emit_write_value(inner_indent, access, write_tn)
     return out
 
@@ -658,6 +703,109 @@ def _emit_decode_by_key_len(
     return out
 
 
+def _emit_tuple_encode_decode(
+    fields: List[String],
+    types: List[String],
+    opts: List[Bool],
+    req: Int,
+    has_opt: Bool,
+) raises DecodeError -> String:
+    var out = String()
+    out += "    def encode_to(self, mut w: WireWriter, options: EncodeOptions):\n"
+    if has_opt:
+        out += "        var n = " + String(req) + "\n"
+        for i in range(len(fields)):
+            if opts[i]:
+                out += "        if self." + fields[i] + ":\n"
+                out += "            n += 1\n"
+        out += "        w.write_array_len(n)\n"
+    else:
+        out += "        w.write_array_len(" + String(req) + ")\n"
+    for i in range(len(fields)):
+        var indent = String("        ")
+        var access = "self." + fields[i]
+        var write_tn = types[i]
+        if opts[i]:
+            out += "        if self." + fields[i] + ":\n"
+            indent = String("            ")
+            access = "self." + fields[i] + ".value()"
+            write_tn = _cut(types[i], 9, types[i].byte_length() - 1)
+        out += _emit_write_value(indent, access, write_tn)
+    out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
+    out += "        var _n = r.read_array_len()\n"
+    out += "        var _i = 0\n"
+    for i in range(len(fields)):
+        var read_tn = types[i]
+        var dest = "self." + fields[i]
+        if opts[i]:
+            read_tn = _cut(types[i], 9, types[i].byte_length() - 1)
+            out += "        if _i < _n:\n"
+            out += _emit_decode_value(String("            "), dest, read_tn, True)
+            out += "            _i += 1\n"
+        else:
+            out += "        if _i >= _n:\n"
+            out += "            raise DecodeError(DecodeError.KIND_EOF, r.position())\n"
+            out += _emit_decode_value(String("        "), dest, read_tn, False)
+            out += "        _i += 1\n"
+    out += "        while _i < _n:\n"
+    out += "            r.skip_item()\n"
+    out += "            _i += 1\n"
+    return out
+
+
+def _emit_decode_int_keys(
+    fields: List[String],
+    types: List[String],
+    opts: List[Bool],
+    key_ints: List[Int64],
+) raises DecodeError -> String:
+    var out = String()
+    out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
+    out += "        var _pairs = r.read_map_len()\n"
+    if len(fields) > 0:
+        out += "        var _expect = 0\n"
+    out += "        for _i in range(_pairs):\n"
+    out += "            var _ik = Int64(0)\n"
+    out += "            if not r.take_int_key(_ik):\n"
+    out += "                r.skip_item()\n"
+    out += "                continue\n"
+    for i in range(len(fields)):
+        var read_tn = types[i]
+        var dest = "self." + fields[i]
+        if opts[i]:
+            read_tn = _cut(types[i], 9, types[i].byte_length() - 1)
+        var iks = String(key_ints[i])
+        if i == 0:
+            out += "            if _expect == 0 and _ik == Int64(" + iks + "):\n"
+        else:
+            out += (
+                "            elif _expect == "
+                + String(i)
+                + " and _ik == Int64("
+                + iks
+                + "):\n"
+            )
+        out += _emit_decode_value(String("                "), dest, read_tn, opts[i])
+        out += "                _expect = " + String(i + 1) + "\n"
+    if len(fields) == 0:
+        out += "            r.skip_item()\n"
+    else:
+        out += "            else:\n"
+        for i in range(len(fields)):
+            var read_tn2 = types[i]
+            var dest2 = "self." + fields[i]
+            if opts[i]:
+                read_tn2 = _cut(types[i], 9, types[i].byte_length() - 1)
+            if i == 0:
+                out += "                if _ik == Int64(" + String(key_ints[i]) + "):\n"
+            else:
+                out += "                elif _ik == Int64(" + String(key_ints[i]) + "):\n"
+            out += _emit_decode_value(String("                    "), dest2, read_tn2, opts[i])
+        out += "                else:\n"
+        out += "                    r.skip_item()\n"
+    return out
+
+
 def emit_union(
     doc: CddlDoc, name: String, type_idx: Int, owner_def: Int
 ) raises DecodeError -> String:
@@ -726,7 +874,10 @@ def emit_union(
         elif k == CT_FLOAT:
             cond = String("_maj == 7 and (_ai == 25 or _ai == 26 or _ai == 27)")
         elif k == CT_STRUCT:
-            cond = String("_maj == 5")
+            if doc.types[br[i]].name == "[]":
+                cond = String("_maj == 4")
+            else:
+                cond = String("_maj == 5")
         elif k == CT_ARRAY:
             cond = String("_maj == 4")
         if i == 0:
@@ -750,6 +901,8 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
     var types = List[String]()
     var opts = List[Bool]()
     var keys = List[String]()
+    var key_kinds = List[Int]()
+    var key_ints = List[Int64]()
     var inners = List[Int]()
     for m in range(t.members_count):
         var mem = doc.members[t.members_start + m]
@@ -759,12 +912,18 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
             var rr = _resolve(doc, inner)
             if doc.types[rr].kind != CT_ARRAY:
                 raise DecodeError(DecodeError.KIND_CDDL, 0)
-        var tn = _field_type_name(doc, def_i, mem.type_idx, opt, name, mem.name)
-        fields.append(_mojo_ident(mem.name))
+        var fname = mem.name
+        if fname.byte_length() == 0:
+            fname = String("e") + String(m)
+        var tn = _field_type_name(doc, def_i, mem.type_idx, opt, name, fname)
+        fields.append(_mojo_ident(fname))
         types.append(tn)
         opts.append(opt)
         keys.append(mem.name)
+        key_kinds.append(mem.key_kind)
+        key_ints.append(mem.key_int)
         inners.append(inner)
+    var is_tuple = t.name == "[]"
     var out = _header()
     out += "struct " + name + "(Copyable, Movable, Defaultable, Deinitable, CborDatum):\n"
     for i in range(len(fields)):
@@ -805,16 +964,30 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
             indent = String("            ")
             access = "self." + fields[i] + ".value()"
             write_tn = _cut(types[i], 9, types[i].byte_length() - 1)
-        out += indent + "n += encoded_tstr_len(" + String(keys[i].byte_length()) + ")\n"
+        if (not is_tuple) and key_kinds[i] == CK_INT_KEY:
+            out += indent + "n += encoded_int_len(Int64(" + String(key_ints[i]) + "))\n"
+        elif not is_tuple:
+            out += indent + "n += encoded_tstr_len(" + String(keys[i].byte_length()) + ")\n"
         out += _emit_len_value(indent, access, write_tn)
     out += "        return n\n\n"
+    if is_tuple:
+        out += _emit_tuple_encode_decode(fields, types, opts, req, has_opt)
+        return out
     var cddl_order = List[Int]()
+    var encs = List[List[Byte]]()
     for i in range(len(fields)):
         cddl_order.append(i)
-    var cde_order = _cde_key_order(keys)
+        if key_kinds[i] == CK_INT_KEY:
+            encs.append(_int_encoded_bytes(key_ints[i]))
+        else:
+            encs.append(_tstr_encoded_bytes(keys[i]))
+    var cde_order = _cde_order_enc(encs)
     var key_lits = List[String]()
     for i in range(len(fields)):
-        key_lits.append(_xbytes_lit(_tstr_encoded_bytes(keys[i])))
+        if key_kinds[i] == CK_INT_KEY:
+            key_lits.append("w.write_int(Int64(" + String(key_ints[i]) + "))\n")
+        else:
+            key_lits.append("w.write_bytes(" + _xbytes_lit(encs[i]) + ")\n")
     out += "    def encode_to(self, mut w: WireWriter, options: EncodeOptions):\n"
     if has_opt:
         out += "        var n = " + String(req) + "\n"
@@ -838,17 +1011,24 @@ def emit_struct(doc: CddlDoc, def_i: Int) raises DecodeError -> String:
         out += _emit_struct_pairs(
             String("        "), fields, types, opts, key_lits, cddl_order
         )
-    out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
-    out += "        var _pairs = r.read_map_len()\n"
-    if len(fields) > 0:
-        out += "        var _expect = 0\n"
-    out += "        for _i in range(_pairs):\n"
-    out += "            var _ks = 0\n"
-    out += "            var _kn = 0\n"
-    out += "            if not r.take_definite_tstr(_ks, _kn):\n"
-    out += "                r.skip_item()\n"
-    out += "                continue\n"
-    out += _emit_decode_expect_then_len(fields, types, opts, keys)
+    var all_int = len(fields) > 0
+    for i in range(len(fields)):
+        if key_kinds[i] != CK_INT_KEY:
+            all_int = False
+    if all_int:
+        out += _emit_decode_int_keys(fields, types, opts, key_ints)
+    else:
+        out += "\n    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:\n"
+        out += "        var _pairs = r.read_map_len()\n"
+        if len(fields) > 0:
+            out += "        var _expect = 0\n"
+        out += "        for _i in range(_pairs):\n"
+        out += "            var _ks = 0\n"
+        out += "            var _kn = 0\n"
+        out += "            if not r.take_definite_tstr(_ks, _kn):\n"
+        out += "                r.skip_item()\n"
+        out += "                continue\n"
+        out += _emit_decode_expect_then_len(fields, types, opts, keys)
     return out
 
 

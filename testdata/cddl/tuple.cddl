@@ -1,0 +1,7 @@
+; Heterogeneous array (tuple). Encodes as a definite CBOR array.
+
+Row = [
+  f_bool: bool,
+  f_int: int,
+  f_text: tstr,
+]

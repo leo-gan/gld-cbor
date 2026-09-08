@@ -64,6 +64,23 @@ def test_hot_path_does_not_reencode_or_arena() raises:
     assert_true(src.find("var _expect = 0") >= 0)
 
 
+def test_int_keys_emit_write_int() raises:
+    var doc = parse_cddl_file("testdata/cddl/intkeys.cddl")
+    var src = _bodies(doc)
+    assert_true(src.find("var k0: Bool") >= 0)
+    assert_true(src.find("w.write_int(Int64(0))") >= 0)
+    assert_true(src.find("take_int_key") >= 0)
+    assert_true(src.find("w.write_tstr(\"k0\")") < 0)
+
+
+def test_tuple_emits_array() raises:
+    var doc = parse_cddl_file("testdata/cddl/tuple.cddl")
+    var src = _bodies(doc)
+    assert_true(src.find("w.write_array_len(3)") >= 0)
+    assert_true(src.find("read_array_len") >= 0)
+    assert_true(src.find("w.write_map_len") < 0)
+
+
 def test_non_optional_recursive_rejected() raises:
     var doc = parse_cddl(String("Loop = { inner: Loop }\n"))
     var threw = False
