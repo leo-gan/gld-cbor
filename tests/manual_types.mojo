@@ -1,18 +1,15 @@
-from std.collections import List, Optional, Span
-
 from cbor import (
     CborDatum,
     DecodeError,
     EncodeOptions,
     WireReader,
     WireWriter,
-    CK_INT,
-    CK_MAP,
-    CK_TEXT,
-    CK_TRUE,
-    CK_UINT,
+    encoded_float_preferred_len,
+    encoded_head_len,
+    encoded_int_len,
+    encoded_tstr_len,
+    encoded_uint_len,
 )
-from runtime.value import CborValue, decode_item, node_as_float
 
 
 struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
@@ -46,10 +43,18 @@ struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         self.f_text = f_text
 
     def encoded_len(self, options: EncodeOptions) -> Int:
-        var w = WireWriter()
-        self.encode_to(w, options)
-        var b = w^.finish()
-        return len(b)
+        var n = encoded_head_len(UInt64(5))
+        n += encoded_tstr_len(6)
+        n += 1
+        n += encoded_tstr_len(5)
+        n += encoded_int_len(self.f_int)
+        n += encoded_tstr_len(6)
+        n += encoded_uint_len(self.f_uint)
+        n += encoded_tstr_len(7)
+        n += encoded_float_preferred_len(self.f_float)
+        n += encoded_tstr_len(6)
+        n += encoded_tstr_len(self.f_text.byte_length())
+        return n
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(5)
@@ -65,30 +70,22 @@ struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         w.write_tstr(self.f_text)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        var node = tmp.nodes[root]
-        if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, r.position())
-        var pairs = Int(node.b)
-        var k0 = Int(node.a)
-        for i in range(pairs):
-            var kn = tmp.nodes[tmp.kids[k0 + i * 2]]
-            if kn.kind != CK_TEXT:
+        var pairs = r.read_map_len()
+        for _i in range(pairs):
+            var ks = 0
+            var kn = 0
+            if not r.take_definite_tstr(ks, kn):
+                r.skip_item()
                 continue
-            var key = tmp.texts[Int(kn.a)]
-            var vn = tmp.kids[k0 + i * 2 + 1]
-            if key == "f_bool":
-                self.f_bool = tmp.nodes[vn].kind == CK_TRUE
-            if key == "f_int":
-                self.f_int = tmp.nodes[vn].a
-            if key == "f_uint":
-                var uv = tmp.nodes[vn]
-                var uval = uv.b
-                if uv.kind == CK_INT:
-                    uval = UInt64(uv.a)
-                self.f_uint = uval
-            if key == "f_float":
-                self.f_float = node_as_float(tmp, vn)
-            if key == "f_text":
-                self.f_text = tmp.texts[Int(tmp.nodes[vn].a)]
+            if r.bytes_eq(ks, kn, "f_bool"):
+                self.f_bool = r.read_bool()
+            elif r.bytes_eq(ks, kn, "f_int"):
+                self.f_int = r.read_int64()
+            elif r.bytes_eq(ks, kn, "f_uint"):
+                self.f_uint = r.read_uint64()
+            elif r.bytes_eq(ks, kn, "f_float"):
+                self.f_float = r.read_float64()
+            elif r.bytes_eq(ks, kn, "f_text"):
+                self.f_text = r.read_tstr()
+            else:
+                r.skip_item()

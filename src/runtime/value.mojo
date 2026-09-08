@@ -1,5 +1,6 @@
 from std.collections import List, Span
 
+from runtime.cde import assert_cde_roundtrip, encoded_eq, sort_by_encoded_keys
 from runtime.error import DecodeError
 from runtime.options import EncodeOptions
 from wire.half import f32_from_bits, f64_from_bits, f64_to_bits, half_to_f64
@@ -264,22 +265,18 @@ def _encode_node(v: CborValue, idx: Int, mut w: WireWriter, options: EncodeOptio
         if ident and (n.flags & FLAG_INDEF) != 0:
             w.write_head_raw(2, AI_INDEF, UInt64(0))
             w.write_head(2, n.b)
-            for i in range(ln):
-                w.write_byte(v.bytes[start + i])
+            w.write_bytes_range(v.bytes, start, ln)
             w.write_break()
         else:
-            var tmp = List[Byte](capacity=ln)
-            for i in range(ln):
-                tmp.append(v.bytes[start + i])
-            w.write_bstr(tmp)
+            w.write_head(2, UInt64(ln))
+            w.write_bytes_range(v.bytes, start, ln)
     elif n.kind == CK_TEXT:
         var t = v.texts[Int(n.a)]
         if ident and (n.flags & FLAG_INDEF) != 0:
             var b = t.as_bytes()
             w.write_head_raw(3, AI_INDEF, UInt64(0))
             w.write_head(3, UInt64(len(b)))
-            for i in range(len(b)):
-                w.write_byte(b[i])
+            w.write_bytes(b)
             w.write_break()
         else:
             w.write_tstr(t)
@@ -345,27 +342,6 @@ def _key_bytes(v: CborValue, key_idx: Int) raises DecodeError -> List[Byte]:
     return w^.finish()
 
 
-def _bytes_lt(a: List[Byte], b: List[Byte]) -> Bool:
-    var n = len(a)
-    if len(b) < n:
-        n = len(b)
-    for i in range(n):
-        if Int(a[i]) < Int(b[i]):
-            return True
-        if Int(a[i]) > Int(b[i]):
-            return False
-    return len(a) < len(b)
-
-
-def _bytes_eq(a: List[Byte], b: List[Byte]) -> Bool:
-    if len(a) != len(b):
-        return False
-    for i in range(len(a)):
-        if Int(a[i]) != Int(b[i]):
-            return False
-    return True
-
-
 def _encode_map(
     v: CborValue, idx: Int, mut w: WireWriter, options: EncodeOptions
 ) raises DecodeError:
@@ -381,35 +357,22 @@ def _encode_map(
             _encode_node(v, v.kids[k0 + i * 2 + 1], w, options)
         w.write_break()
         return
-    var order = List[Int]()
+    var keys = List[List[Byte]]()
     for i in range(pairs):
-        order.append(i)
-    if dcbor:
-        for i in range(pairs):
+        if dcbor:
             if v.nodes[v.kids[k0 + i * 2]].kind != CK_TEXT:
                 raise DecodeError(DecodeError.KIND_CDE, 0)
+        keys.append(_key_bytes(v, v.kids[k0 + i * 2]))
+    var order = List[Int]()
     if options.is_cde() or dcbor:
-        # insertion sort by encoded key bytes
+        order = sort_by_encoded_keys(keys)
+    else:
         for i in range(pairs):
-            var j = i
-            while j > 0:
-                var kb = _key_bytes(v, v.kids[k0 + order[j] * 2])
-                var ka = _key_bytes(v, v.kids[k0 + order[j - 1] * 2])
-                if _bytes_lt(kb, ka):
-                    var tmp = order[j]
-                    order[j] = order[j - 1]
-                    order[j - 1] = tmp
-                    j -= 1
-                else:
-                    break
-    # duplicate check
-    if pairs > 0:
-        var prev = _key_bytes(v, v.kids[k0 + order[0] * 2])
+            order.append(i)
+    if pairs > 1:
         for i in range(1, pairs):
-            var cur = _key_bytes(v, v.kids[k0 + order[i] * 2])
-            if _bytes_eq(prev, cur):
+            if encoded_eq(keys[order[i - 1]], keys[order[i]]):
                 raise DecodeError(DecodeError.KIND_DUP_KEY, 0)
-            prev = cur^
     w.write_map_len(pairs)
     for i in range(pairs):
         var p = order[i]
@@ -443,9 +406,5 @@ def node_as_float(v: CborValue, idx: Int) raises DecodeError -> Float64:
 def decode_strict[origin: ImmOrigin](buf: Span[Byte, origin]) raises DecodeError -> CborValue:
     var v = decode_value(buf)
     var again = encode_value(v, EncodeOptions.cde)
-    if len(again) != len(buf):
-        raise DecodeError(DecodeError.KIND_CDE, 0)
-    for i in range(len(buf)):
-        if Int(again[i]) != Int(buf[i]):
-            raise DecodeError(DecodeError.KIND_CDE, i)
+    assert_cde_roundtrip(buf, again)
     return v^

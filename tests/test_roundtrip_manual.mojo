@@ -1,13 +1,14 @@
 from std.testing import TestSuite, assert_equal, assert_true
 
 from bytes_util import bytes_of
-from cbor import decode, encode
+from cbor import EncodeOptions, decode, encode
 from manual_types import Message
 
 
 def test_message_roundtrip() raises:
     var m = Message(True, Int64(150), UInt64(7), 1.5, String("hi"))
     var buf = encode(m)
+    assert_equal(m.encoded_len(EncodeOptions.preferred), len(buf))
     var m2 = decode[Message](buf)
     assert_true(m2.f_bool)
     assert_equal(m2.f_int, Int64(150))

@@ -50,6 +50,16 @@ def test_union_emits_tag() raises:
     assert_true(src.find("var x: Alt") >= 0)
 
 
+def test_hot_path_does_not_reencode_or_arena() raises:
+    var doc = parse_cddl_file("testdata/cddl/benchmark_v2.cddl")
+    var src = _bodies(doc)
+    assert_true(src.find("encoded_head_len") >= 0)
+    assert_true(src.find("take_definite_tstr") >= 0)
+    assert_true(src.find("self.encode_to(w, options)") < 0)
+    assert_true(src.find("var tmp = CborValue()") < 0)
+    assert_true(src.find("w.write_map_len(5)") >= 0)
+
+
 def test_non_optional_recursive_rejected() raises:
     var doc = parse_cddl(String("Loop = { inner: Loop }\n"))
     var threw = False

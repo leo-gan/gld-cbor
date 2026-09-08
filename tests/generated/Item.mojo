@@ -7,21 +7,13 @@ from cbor import (
     EncodeOptions,
     WireReader,
     WireWriter,
-    decode_value,
-    node_as_float,
-    CK_ARRAY,
-    CK_BYTES,
-    CK_FALSE,
-    CK_FLOAT16,
-    CK_FLOAT32,
-    CK_FLOAT64,
-    CK_INT,
-    CK_MAP,
-    CK_TEXT,
-    CK_TRUE,
-    CK_UINT,
+    encoded_bstr_len,
+    encoded_float_preferred_len,
+    encoded_head_len,
+    encoded_int_len,
+    encoded_tstr_len,
+    encoded_uint_len,
 )
-from runtime.value import decode_item, CborValue
 
 
 struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
@@ -37,39 +29,32 @@ struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         self.qty = qty^
 
     def encoded_len(self, options: EncodeOptions) -> Int:
-        var w = WireWriter()
-        self.encode_to(w, options)
-        var b = w^.finish()
-        return len(b)
+        var n = 0
+        n += encoded_head_len(UInt64(2))
+        n += encoded_tstr_len(4)
+        n += encoded_tstr_len(self.name.byte_length())
+        n += encoded_tstr_len(3)
+        n += encoded_int_len(self.qty)
+        return n
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
-        var n = 0
-        n += 1
-        n += 1
-        w.write_map_len(n)
+        w.write_map_len(2)
         w.write_tstr("name")
         w.write_tstr(self.name)
         w.write_tstr("qty")
         w.write_int(self.qty)
 
-    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
-        var node = tmp.nodes[idx]
-        if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, 0)
-        var pairs = Int(node.b)
-        var k0 = Int(node.a)
-        for i in range(pairs):
-            var kn = tmp.nodes[tmp.kids[k0 + i * 2]]
-            if kn.kind != CK_TEXT:
-                continue
-            var key = tmp.texts[Int(kn.a)]
-            var vn = tmp.kids[k0 + i * 2 + 1]
-            if key == "name":
-                self.name = tmp.texts[Int(tmp.nodes[vn].a)]
-            if key == "qty":
-                self.qty = tmp.nodes[vn].a
-
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        self._from_node(tmp, root)
+        var _pairs = r.read_map_len()
+        for _i in range(_pairs):
+            var _ks = 0
+            var _kn = 0
+            if not r.take_definite_tstr(_ks, _kn):
+                r.skip_item()
+                continue
+            if r.bytes_eq(_ks, _kn, "name"):
+                self.name = r.read_tstr()
+            elif r.bytes_eq(_ks, _kn, "qty"):
+                self.qty = r.read_int64()
+            else:
+                r.skip_item()

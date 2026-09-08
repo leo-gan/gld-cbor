@@ -3,6 +3,12 @@ from wire.head import (
     MAX_COUNT,
     MAX_DEPTH,
     MAX_ITEM_BYTES,
+    encoded_bstr_len,
+    encoded_bytes_len,
+    encoded_head_len,
+    encoded_int_len,
+    encoded_tstr_len,
+    encoded_uint_len,
     extra_len,
     head_byte,
     read_head,
@@ -21,4 +27,4 @@ from wire.half import (
 )
 from wire.reader import WireReader
 from wire.utf8 import string_from_utf8
-from wire.writer import WireWriter
+from wire.writer import WireWriter, encoded_float_preferred_len

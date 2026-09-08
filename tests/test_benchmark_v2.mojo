@@ -1,6 +1,6 @@
 from std.testing import TestSuite, assert_equal, assert_true
 
-from cbor import decode, encode
+from cbor import EncodeOptions, decode, encode
 from Message import Message
 
 
@@ -13,6 +13,7 @@ def test_message_roundtrip() raises:
     m.f_text = String("hi")
     var buf = encode(m)
     assert_true(len(buf) > 0)
+    assert_equal(m.encoded_len(EncodeOptions.preferred), len(buf))
     var m2 = decode[Message](buf)
     assert_equal(m2.f_bool, True)
     assert_equal(m2.f_int, Int64(150))
