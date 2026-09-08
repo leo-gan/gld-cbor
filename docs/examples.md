@@ -67,3 +67,12 @@ var dec = SeqDecoder(seq_buf)
 while dec.has_more():
     var item = dec.next_value()  # or dec.skip()
 ```
+
+## Pretty diagnostic notation and dCBOR
+
+```mojo
+from cbor import encode_diag_pretty, encode_value, EncodeOptions
+
+var text = encode_diag_pretty(v)
+var deterministic = encode_value(v, EncodeOptions.dcbor)
+```

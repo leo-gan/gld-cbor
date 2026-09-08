@@ -1,7 +1,14 @@
 from std.testing import TestSuite, assert_equal, assert_true
 
-from cddl.model import CT_GENERIC, CT_REGEXP, CT_SOCKET, CT_STRUCT
-from cddl.parse import parse_cddl
+from cddl.model import (
+    CT_CONTROL,
+    CT_GENERIC,
+    CT_REGEXP,
+    CT_SOCKET,
+    CT_STRUCT,
+    CT_UNWRAP,
+)
+from cddl.parse import parse_cddl, parse_cddl_file
 from cddl.regexp import regexp_fullmatch
 
 
@@ -49,6 +56,40 @@ def test_regexp_star() raises:
     assert_true(regexp_fullmatch("a*b", "aaab"))
     assert_true(regexp_fullmatch("a*b", "b"))
     assert_equal(regexp_fullmatch("a*b", "c"), False)
+
+
+def test_unwrap() raises:
+    var text = String("G = ( a: int )\nM = { ~G, b: tstr }\n")
+    var doc = parse_cddl(text)
+    var m = doc.types[doc.def_types[1]]
+    assert_equal(m.kind, CT_STRUCT)
+    var first = doc.types[doc.members[m.members_start].type_idx]
+    assert_equal(first.kind, CT_UNWRAP)
+
+
+def test_controls_parse() raises:
+    var text = String(
+        "f = uint .bits flags\n"
+        + "g = uint .ibits flags\n"
+        + "h = int .and uint\n"
+        + "i = int .within number\n"
+        + "j = bstr .andcbor Message\n"
+    )
+    var doc = parse_cddl(text)
+    assert_equal(len(doc.def_names), 5)
+    for k in range(5):
+        assert_equal(doc.types[doc.def_types[k]].kind, CT_CONTROL)
+
+
+def test_include_one_file() raises:
+    var doc = parse_cddl_file("testdata/cddl/include_parent.cddl")
+    var names = 0
+    for i in range(len(doc.def_names)):
+        if doc.def_names[i] == "Leaf":
+            names += 1
+        if doc.def_names[i] == "Holder":
+            names += 1
+    assert_equal(names, 2)
 
 
 def main() raises:

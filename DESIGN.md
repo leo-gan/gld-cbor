@@ -60,7 +60,7 @@ The sibling libraries `gld-protobuf` and `gld-avro` proved the product shape: pi
 3. Parse RFC 8610 CDDL (v1 subset below) in Mojo. No host CDDL compiler is required to run codegen.
 4. CLI `gld-cborgen-mojo` emits typed Mojo structs with explicit `encoded_len` / `encode_to` / `decode_from`.
 5. Dynamic `CborValue` (arena of nodes) for schema-free encode/decode of any well-formed item.
-6. Default write is preferred serialization (RFC 8949 §4.1). Optional CDE write and strict CDE decode (RFC 8949 §4.2.1 / `draft-ietf-cbor-cde`).
+6. Default write is preferred serialization (RFC 8949 §4.1). Optional CDE write, optional dCBOR write, and strict CDE decode (RFC 8949 §4.2.1 / `draft-ietf-cbor-cde`).
 7. First-class codecs for tags 0, 1, 2, 3, 4, 5, 24, 32. Other tags stay `CborTag(number, value)`.
 8. CDDL `?` / optional map members map to `Optional[T]`.
 9. Interop on known data with official Python `cbor2`.
@@ -73,9 +73,9 @@ The sibling libraries `gld-protobuf` and `gld-avro` proved the product shape: pi
 
 - COSE (RFC 9052), CWT, or any application profile built on CBOR.
 - Packed CBOR (RFC 9595).
-- dCBOR / Gordian deterministic profile beyond RFC 8949 §4.2.1 / `draft-ietf-cbor-cde`.
+- dCBOR decode-time validation and the rest of the Gordian profile (envelope, known-value registry). Write-mode `EncodeOptions.dcbor` is implemented.
 - CBOR Pretty Printing beyond diagnostic notation.
-- CDDL `.bits` / `.ibits`, `.and` / `.within` / `.andcbor`, and multi-file `export` catalogs. Local `include` of one extra `.cddl` file is later.
+- Multi-file CDDL `export` catalogs (more than one `include`).
 - Full PCRE (lookbehind, backreferences). `.regexp` is the implemented subset; `.pcre` is accepted as an alias of that subset.
 - GPU encode/decode.
 - Reflection-driven encode of arbitrary non-generated Mojo structs.
@@ -90,9 +90,18 @@ These four items are implemented (2026-09-08):
 - Zero-copy `StringSpan` views on decode (`decode_tstr_span`, `WireReader.read_text_span`).
 - Streaming pull decoder (`SeqDecoder`) that yields or skips one sequence item without buffering the rest.
 
+Also implemented (2026-09-08, ready-now set):
+
+- Local `include "file.cddl"` of **one** extra file (the included file cannot include).
+- Unwrap `~` and parenthesized groups as types.
+- Controls `.bits`, `.ibits`, `.and`, `.within`, `.andcbor` parse as `CT_CONTROL`.
+- `encode_diag_pretty` (indented diagnostic notation).
+- `EncodeOptions.dcbor`: definite, text keys only, CDE key sort, no `undefined` / unassigned simples / NaN / Infinity; integer-valued floats become integers.
+
 Still later:
 
-- CDDL `.bits` / `.ibits` / `.and` / `.within` / `.andcbor`, file `include`, and full PCRE.
+- CDDL `export` catalogs and nested includes.
+- Full PCRE.
 - Zero-copy views of indefinite text (requires concatenation, so v1 still copies).
 
 ---
@@ -333,25 +342,30 @@ struct EncodeOptions(Copyable, ImplicitlyCopyable):
     comptime PREFERRED = 0
     comptime CDE = 1
     comptime IDENTITY = 2
+    comptime DCBOR = 3
 
     comptime preferred = EncodeOptions(mode=Self.PREFERRED)
     comptime cde = EncodeOptions(mode=Self.CDE)
     comptime identity = EncodeOptions(mode=Self.IDENTITY)
+    comptime dcbor = EncodeOptions(mode=Self.DCBOR)
 ```
 
 Default `encode(...)` uses `preferred`.
 
-| Rule | Preferred (§4.1) | CDE (§4.2.1) | Identity |
-| --- | --- | --- | --- |
-| Shortest integer AI | yes | yes | keep stored AI width |
-| Definite lengths only | yes | yes | keep `indef` bit |
-| Shortest float that preserves value | yes | yes | keep stored width and bits |
-| Zero-payload NaN | `f97e00` | `f97e00` | keep stored bits |
-| Non-zero NaN payload | shortest width that holds the payload | same | keep stored bits |
-| Map key order | **no sort** (stored / CDDL order) | sort by **encoded key bytes** | no sort |
-| Duplicate keys | reject on `CborValue` write | reject | reject |
-| Simple 0–23 | tiny AI | tiny AI | tiny AI |
-| `0xf8` + byte `< 0x20` | never written; **not well-formed on any decode** | same | same |
+| Rule | Preferred (§4.1) | CDE (§4.2.1) | Identity | dCBOR |
+| --- | --- | --- | --- | --- |
+| Shortest integer AI | yes | yes | keep stored AI width | yes |
+| Definite lengths only | yes | yes | keep `indef` bit | yes |
+| Shortest float that preserves value | yes | yes | keep stored width and bits | yes; integer-valued floats become ints |
+| Zero-payload NaN | `f97e00` | `f97e00` | keep stored bits | reject (`KIND_CDE`) |
+| Non-zero NaN payload | shortest width that holds the payload | same | keep stored bits | reject |
+| Infinity | shortest float | shortest float | keep stored bits | reject |
+| Map key order | **no sort** (stored / CDDL order) | sort by **encoded key bytes** | no sort | CDE key sort |
+| Text keys only | no | no | no | yes; other key kinds reject |
+| Duplicate keys | reject on `CborValue` write | reject | reject | reject |
+| Simple 0–23 | tiny AI | tiny AI | tiny AI | tiny AI |
+| `undefined` / unassigned simples | written | written | written | reject |
+| `0xf8` + byte `< 0x20` | never written; **not well-formed on any decode** | same | same | same |
 
 Strict CDE decode is not a fourth write mode. `decode_strict` decodes to `CborValue`, re-encodes with CDE, and compares bytes to the input. That accepts every legal CDE encoding, including a non-`f97e00` NaN that §4.2.1 still considers shortest.
 
@@ -486,7 +500,7 @@ Preferred and CDE encode of a numeric value that fits `Int64` or `UInt64` uses m
 
 Tokens: identifiers, integers, floats, text literals, `/` `=>` `:` `=` `/=` `?` `*` `+` `(` `)` `[` `]` `{` `}` `<` `>` `,` `.` `..` `...` `#` `#6.N` control names (`.size` …), `;` line comments. `;` comments run to end of line. Whitespace is ignored.
 
-The parser **rejects** unwrap `~`, `.bits` / `.ibits`, `.and` / `.within` / `.andcbor`. It **accepts** sockets (`$name`, `$$name`, `/=`, `//=`), generic application `name<T, U>`, and `.regexp` / `.pcre`. Group choice `//` inside a type is still rejected; `//=` is only an assignment operator for group sockets.
+The parser **accepts** sockets, generic application, `.regexp` / `.pcre`, unwrap `~`, parenthesized groups, `.bits` / `.ibits` / `.and` / `.within` / `.andcbor`, and one `include "file.cddl"`. Group choice `//` inside a type is still rejected; `//=` is only an assignment operator for group sockets. The included file cannot include another file.
 
 ### Grammar accepted
 

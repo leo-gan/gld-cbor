@@ -18,6 +18,7 @@ shared external suite and they are not a product schema.
 | `longlist.cddl` | Recursive optional record |
 | `tags.cddl` | Standard tags 0, 1, 32 |
 | `later.cddl` | Sockets, generic application, `.regexp` |
+| `include_parent.cddl` / `leaf.cddl` | One-file `include` |
 
 ## Golden vectors
 

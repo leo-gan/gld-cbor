@@ -19,6 +19,7 @@ from cddl.model import (
     CT_TAG,
     CT_TSTR,
     CT_UINT,
+    CT_UNWRAP,
     CT_VALUE,
     CddlDoc,
     CddlMember,
@@ -153,9 +154,13 @@ def _parse_string[origin: ImmOrigin](mut p: _Lex[origin]) raises DecodeError -> 
 def _parse_type2[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
     p.skip()
     if p.peek() == 126:
-        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+        p.pos += 1
+        var inner = _parse_type2(p, doc)
+        return doc.add_type(CddlType(CT_UNWRAP, inner=inner))
     if p.peek() == 123:
         return _parse_struct(p, doc)
+    if p.peek() == 40:
+        return _parse_group(p, doc)
     if p.peek() == 91:
         return _parse_array(p, doc)
     if p.peek() == 35:
@@ -262,6 +267,15 @@ def _parse_struct[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) rais
         if p.peek() == 42:
             # open map * tstr => T — treat as remaining catch-all, skip to }
             raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+        if p.peek() == 126:
+            var uty = _parse_type(p, doc)
+            doc.members.append(CddlMember(String(""), uty, False))
+            count += 1
+            p.skip()
+            if p.peek() == 44:
+                p.pos += 1
+                p.skip()
+            continue
         var name = _ident(p)
         p.skip()
         _eat(p, 58)
@@ -316,6 +330,15 @@ def _parse_group[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raise
             optional = True
             p.pos += 1
             p.skip()
+        if p.peek() == 126:
+            var uty = _parse_type(p, doc)
+            doc.members.append(CddlMember(String(""), uty, False))
+            count += 1
+            p.skip()
+            if p.peek() == 44:
+                p.pos += 1
+                p.skip()
+            continue
         var name = _ident(p)
         p.skip()
         _eat(p, 58)
@@ -332,10 +355,62 @@ def _parse_group[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raise
     )
 
 
+def _parent_dir(path: String) -> String:
+    var last = -1
+    var b = path.as_bytes()
+    for i in range(len(b)):
+        if Int(b[i]) == 47:
+            last = i
+    if last <= 0:
+        return String(".")
+    try:
+        return String(from_utf8=b[0:last])
+    except _:
+        return String(".")
+
+
+def _join_path(base: String, rel: String) -> String:
+    var rb = rel.as_bytes()
+    if len(rb) > 0 and Int(rb[0]) == 47:
+        return rel
+    if base == "." or base.byte_length() == 0:
+        return rel
+    return base + "/" + rel
+
+
+def _read_file(path: String) raises DecodeError -> String:
+    try:
+        var f = open(path, "r")
+        var s = String(f.read())
+        f.close()
+        return s
+    except _:
+        raise DecodeError(DecodeError.KIND_CDDL, 0)
+
+
 def parse_cddl(text: String) raises DecodeError -> CddlDoc:
+    return parse_cddl_from(text, String("."), True)
+
+
+def parse_cddl_file(path: String) raises DecodeError -> CddlDoc:
+    return parse_cddl_from(_read_file(path), _parent_dir(path), True)
+
+
+def parse_cddl_from(
+    text: String, base_dir: String, allow_include: Bool
+) raises DecodeError -> CddlDoc:
+    var doc = CddlDoc()
+    _parse_into(text, base_dir, doc, allow_include)
+    if len(doc.def_names) == 0 and len(doc.socket_names) == 0:
+        raise DecodeError(DecodeError.KIND_CDDL, 0)
+    return doc^
+
+
+def _parse_into(
+    text: String, base_dir: String, mut doc: CddlDoc, allow_include: Bool
+) raises DecodeError:
     var b = text.as_bytes()
     var p = _Lex(b)
-    var doc = CddlDoc()
     p.skip()
     while p.peek() != -1:
         var dollars = 0
@@ -343,6 +418,15 @@ def parse_cddl(text: String) raises DecodeError -> CddlDoc:
             p.pos += 1
             dollars += 1
         var name = _ident(p)
+        p.skip()
+        if dollars == 0 and name == "include":
+            if not allow_include:
+                raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            var rel = _parse_string(p)
+            var child = _join_path(base_dir, rel)
+            _parse_into(_read_file(child), _parent_dir(child), doc, False)
+            p.skip()
+            continue
         p.skip()
         if p.peek() == 60:
             p.pos += 1
@@ -398,6 +482,3 @@ def parse_cddl(text: String) raises DecodeError -> CddlDoc:
                 doc.def_names.append(name)
                 doc.def_types.append(ty)
         p.skip()
-    if len(doc.def_names) == 0 and len(doc.socket_names) == 0:
-        raise DecodeError(DecodeError.KIND_CDDL, 0)
-    return doc^
