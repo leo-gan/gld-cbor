@@ -34,7 +34,7 @@ struct Wrap(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(1)
-        w.write_tstr("x")
+        w.write_bytes(String("\x61\x78").as_bytes())
         self.x.encode_to(w, options)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
@@ -45,9 +45,12 @@ struct Wrap(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "x"):
-                var _c = Alt()
-                _c.decode_from(r)
-                self.x = _c^
+            if _kn == 1:
+                if r.bytes_eq(_ks, _kn, "x"):
+                    var _c = Alt()
+                    _c.decode_from(r)
+                    self.x = _c^
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

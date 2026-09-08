@@ -42,7 +42,7 @@ struct B(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             n += 1
         w.write_map_len(n)
         if self.a:
-            w.write_tstr("a")
+            w.write_bytes(String("\x61\x61").as_bytes())
             self.a.value()[].encode_to(w, options)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
@@ -53,9 +53,12 @@ struct B(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "a"):
-                var _c = A()
-                _c.decode_from(r)
-                self.a = Optional[Box[A]](Box(_c^))
+            if _kn == 1:
+                if r.bytes_eq(_ks, _kn, "a"):
+                    var _c = A()
+                    _c.decode_from(r)
+                    self.a = Optional[Box[A]](Box(_c^))
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

@@ -54,16 +54,28 @@ struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(5)
-        w.write_tstr("f_bool")
-        w.write_bool(self.f_bool)
-        w.write_tstr("f_int")
-        w.write_int(self.f_int)
-        w.write_tstr("f_uint")
-        w.write_uint(self.f_uint)
-        w.write_tstr("f_float")
-        w.write_float_preferred(self.f_float)
-        w.write_tstr("f_text")
-        w.write_tstr(self.f_text)
+        if options.is_cde():
+            w.write_bytes(String("\x65\x66\x5f\x69\x6e\x74").as_bytes())
+            w.write_int(self.f_int)
+            w.write_bytes(String("\x66\x66\x5f\x62\x6f\x6f\x6c").as_bytes())
+            w.write_bool(self.f_bool)
+            w.write_bytes(String("\x66\x66\x5f\x74\x65\x78\x74").as_bytes())
+            w.write_tstr(self.f_text)
+            w.write_bytes(String("\x66\x66\x5f\x75\x69\x6e\x74").as_bytes())
+            w.write_uint(self.f_uint)
+            w.write_bytes(String("\x67\x66\x5f\x66\x6c\x6f\x61\x74").as_bytes())
+            w.write_float_preferred(self.f_float)
+        else:
+            w.write_bytes(String("\x66\x66\x5f\x62\x6f\x6f\x6c").as_bytes())
+            w.write_bool(self.f_bool)
+            w.write_bytes(String("\x65\x66\x5f\x69\x6e\x74").as_bytes())
+            w.write_int(self.f_int)
+            w.write_bytes(String("\x66\x66\x5f\x75\x69\x6e\x74").as_bytes())
+            w.write_uint(self.f_uint)
+            w.write_bytes(String("\x67\x66\x5f\x66\x6c\x6f\x61\x74").as_bytes())
+            w.write_float_preferred(self.f_float)
+            w.write_bytes(String("\x66\x66\x5f\x74\x65\x78\x74").as_bytes())
+            w.write_tstr(self.f_text)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
@@ -73,15 +85,24 @@ struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "f_bool"):
-                self.f_bool = r.read_bool()
-            elif r.bytes_eq(_ks, _kn, "f_int"):
-                self.f_int = r.read_int64()
-            elif r.bytes_eq(_ks, _kn, "f_uint"):
-                self.f_uint = r.read_uint64()
-            elif r.bytes_eq(_ks, _kn, "f_float"):
-                self.f_float = r.read_float64()
-            elif r.bytes_eq(_ks, _kn, "f_text"):
-                self.f_text = r.read_tstr()
+            if _kn == 6:
+                if r.bytes_eq(_ks, _kn, "f_bool"):
+                    self.f_bool = r.read_bool()
+                elif r.bytes_eq(_ks, _kn, "f_uint"):
+                    self.f_uint = r.read_uint64()
+                elif r.bytes_eq(_ks, _kn, "f_text"):
+                    self.f_text = r.read_tstr()
+                else:
+                    r.skip_item()
+            elif _kn == 5:
+                if r.bytes_eq(_ks, _kn, "f_int"):
+                    self.f_int = r.read_int64()
+                else:
+                    r.skip_item()
+            elif _kn == 7:
+                if r.bytes_eq(_ks, _kn, "f_float"):
+                    self.f_float = r.read_float64()
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

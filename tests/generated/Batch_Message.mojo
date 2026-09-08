@@ -36,7 +36,7 @@ struct Batch_Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(1)
-        w.write_tstr("items")
+        w.write_bytes(String("\x65\x69\x74\x65\x6d\x73").as_bytes())
         w.write_array_len(len(self.items))
         for _i in range(len(self.items)):
             self.items[_i].encode_to(w, options)
@@ -49,13 +49,16 @@ struct Batch_Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "items"):
-                var _lst = List[Message]()
-                var _alen = r.read_array_len()
-                for _j in range(_alen):
-                    var _c = Message()
-                    _c.decode_from(r)
-                    _lst.append(_c^)
-                self.items = _lst^
+            if _kn == 5:
+                if r.bytes_eq(_ks, _kn, "items"):
+                    var _lst = List[Message]()
+                    var _alen = r.read_array_len()
+                    for _j in range(_alen):
+                        var _c = Message()
+                        _c.decode_from(r)
+                        _lst.append(_c^)
+                    self.items = _lst^
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

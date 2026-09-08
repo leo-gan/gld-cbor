@@ -58,6 +58,9 @@ def test_hot_path_does_not_reencode_or_arena() raises:
     assert_true(src.find("self.encode_to(w, options)") < 0)
     assert_true(src.find("var tmp = CborValue()") < 0)
     assert_true(src.find("w.write_map_len(5)") >= 0)
+    assert_true(src.find("w.write_bytes(String(") >= 0)
+    assert_true(src.find("if options.is_cde():") >= 0)
+    assert_true(src.find("if _kn == ") >= 0)
 
 
 def test_non_optional_recursive_rejected() raises:

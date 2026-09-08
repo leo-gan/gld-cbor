@@ -39,10 +39,16 @@ struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(2)
-        w.write_tstr("name")
-        w.write_tstr(self.name)
-        w.write_tstr("qty")
-        w.write_int(self.qty)
+        if options.is_cde():
+            w.write_bytes(String("\x63\x71\x74\x79").as_bytes())
+            w.write_int(self.qty)
+            w.write_bytes(String("\x64\x6e\x61\x6d\x65").as_bytes())
+            w.write_tstr(self.name)
+        else:
+            w.write_bytes(String("\x64\x6e\x61\x6d\x65").as_bytes())
+            w.write_tstr(self.name)
+            w.write_bytes(String("\x63\x71\x74\x79").as_bytes())
+            w.write_int(self.qty)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
@@ -52,9 +58,15 @@ struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "name"):
-                self.name = r.read_tstr()
-            elif r.bytes_eq(_ks, _kn, "qty"):
-                self.qty = r.read_int64()
+            if _kn == 4:
+                if r.bytes_eq(_ks, _kn, "name"):
+                    self.name = r.read_tstr()
+                else:
+                    r.skip_item()
+            elif _kn == 3:
+                if r.bytes_eq(_ks, _kn, "qty"):
+                    self.qty = r.read_int64()
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

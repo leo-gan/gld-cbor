@@ -42,7 +42,7 @@ struct Meta(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             n += 1
         w.write_map_len(n)
         if self.note:
-            w.write_tstr("note")
+            w.write_bytes(String("\x64\x6e\x6f\x74\x65").as_bytes())
             w.write_tstr(self.note.value())
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
@@ -53,7 +53,10 @@ struct Meta(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "note"):
-                self.note = Optional[String](r.read_tstr())
+            if _kn == 4:
+                if r.bytes_eq(_ks, _kn, "note"):
+                    self.note = Optional[String](r.read_tstr())
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

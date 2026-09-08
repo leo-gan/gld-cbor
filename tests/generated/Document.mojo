@@ -44,12 +44,20 @@ struct Document(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         w.write_map_len(3)
-        w.write_tstr("id")
-        w.write_tstr(self.id)
-        w.write_tstr("n")
-        w.write_int(self.n)
-        w.write_tstr("meta")
-        self.meta.encode_to(w, options)
+        if options.is_cde():
+            w.write_bytes(String("\x61\x6e").as_bytes())
+            w.write_int(self.n)
+            w.write_bytes(String("\x62\x69\x64").as_bytes())
+            w.write_tstr(self.id)
+            w.write_bytes(String("\x64\x6d\x65\x74\x61").as_bytes())
+            self.meta.encode_to(w, options)
+        else:
+            w.write_bytes(String("\x62\x69\x64").as_bytes())
+            w.write_tstr(self.id)
+            w.write_bytes(String("\x61\x6e").as_bytes())
+            w.write_int(self.n)
+            w.write_bytes(String("\x64\x6d\x65\x74\x61").as_bytes())
+            self.meta.encode_to(w, options)
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
@@ -59,13 +67,22 @@ struct Document(Copyable, Movable, Defaultable, Deinitable, CborDatum):
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if r.bytes_eq(_ks, _kn, "id"):
-                self.id = r.read_tstr()
-            elif r.bytes_eq(_ks, _kn, "n"):
-                self.n = r.read_int64()
-            elif r.bytes_eq(_ks, _kn, "meta"):
-                var _c = Meta()
-                _c.decode_from(r)
-                self.meta = _c^
+            if _kn == 2:
+                if r.bytes_eq(_ks, _kn, "id"):
+                    self.id = r.read_tstr()
+                else:
+                    r.skip_item()
+            elif _kn == 1:
+                if r.bytes_eq(_ks, _kn, "n"):
+                    self.n = r.read_int64()
+                else:
+                    r.skip_item()
+            elif _kn == 4:
+                if r.bytes_eq(_ks, _kn, "meta"):
+                    var _c = Meta()
+                    _c.decode_from(r)
+                    self.meta = _c^
+                else:
+                    r.skip_item()
             else:
                 r.skip_item()

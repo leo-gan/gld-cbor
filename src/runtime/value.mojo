@@ -1,4 +1,5 @@
 from std.collections import List, Span
+from std.memory import unsafe_memcpy
 
 from runtime.cde import assert_cde_roundtrip, encoded_eq, sort_by_encoded_keys
 from runtime.error import DecodeError
@@ -70,8 +71,15 @@ struct CborValue(Movable):
 
 def _append_bytes(mut v: CborValue, src: List[Byte]) -> Int:
     var start = len(v.bytes)
-    for i in range(len(src)):
-        v.bytes.append(src[i])
+    var n = len(src)
+    if n == 0:
+        return start
+    v.bytes.resize(unsafe_uninit_length=start + n)
+    unsafe_memcpy(
+        dest=v.bytes.unsafe_ptr().unsafe_offset(start),
+        src=src.unsafe_ptr(),
+        count=n,
+    )
     return start
 
 
@@ -89,9 +97,7 @@ def _decode_indef_bytes[
         var n = Int(h[1])
         if n < 0 or total + n > MAX_ITEM_BYTES:
             raise DecodeError(DecodeError.KIND_RANGE, r.position())
-        var chunk = r.read_exact(n)
-        for i in range(len(chunk)):
-            v.bytes.append(chunk[i])
+        r.append_exact(v.bytes, n)
         total += n
     return (start, total)
 
@@ -125,9 +131,7 @@ def decode_item[
         else:
             var n = Int(arg)
             var start = len(v.bytes)
-            var chunk = r.read_exact(n)
-            for i in range(len(chunk)):
-                v.bytes.append(chunk[i])
+            r.append_exact(v.bytes, n)
             idx = v.add(CborNode(CK_BYTES, a=Int64(start), b=UInt64(n)))
     elif major == 3:
         if ai == AI_INDEF:
