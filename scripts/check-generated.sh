@@ -25,4 +25,12 @@ if [[ -f tests/generated/Message.mojo ]]; then
     exit 1
   fi
 fi
+tmp2=$(mktemp -d)
+"${MOJO[@]}" run -I src src/codegen/cli.mojo -- --cddl testdata/cddl/longlist.cddl --out "$tmp2"
+if [[ -f tests/generated/LongList.mojo ]]; then
+  if ! diff -u tests/generated/LongList.mojo "$tmp2/LongList.mojo"; then
+    echo "generated LongList.mojo is stale; run scripts/generate.sh" >&2
+    exit 1
+  fi
+fi
 echo "generated sources match"

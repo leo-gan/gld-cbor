@@ -396,18 +396,43 @@ def parse_cddl_file(path: String) raises DecodeError -> CddlDoc:
     return parse_cddl_from(_read_file(path), _parent_dir(path), True)
 
 
+def _path_seen(visited: List[String], path: String) -> Bool:
+    for i in range(len(visited)):
+        if visited[i] == path:
+            return True
+    return False
+
+
 def parse_cddl_from(
     text: String, base_dir: String, allow_include: Bool
 ) raises DecodeError -> CddlDoc:
     var doc = CddlDoc()
-    _parse_into(text, base_dir, doc, allow_include)
+    var visited = List[String]()
+    _parse_into(text, base_dir, doc, allow_include, visited)
     if len(doc.def_names) == 0 and len(doc.socket_names) == 0:
         raise DecodeError(DecodeError.KIND_CDDL, 0)
     return doc^
 
 
+def _parse_name_list[
+    origin: ImmOrigin
+](mut p: _Lex[origin]) raises DecodeError -> List[String]:
+    var names = List[String]()
+    names.append(_ident(p))
+    p.skip()
+    while p.peek() == 44:
+        p.pos += 1
+        names.append(_ident(p))
+        p.skip()
+    return names^
+
+
 def _parse_into(
-    text: String, base_dir: String, mut doc: CddlDoc, allow_include: Bool
+    text: String,
+    base_dir: String,
+    mut doc: CddlDoc,
+    allow_include: Bool,
+    mut visited: List[String],
 ) raises DecodeError:
     var b = text.as_bytes()
     var p = _Lex(b)
@@ -424,7 +449,59 @@ def _parse_into(
                 raise DecodeError(DecodeError.KIND_CDDL, p.pos)
             var rel = _parse_string(p)
             var child = _join_path(base_dir, rel)
-            _parse_into(_read_file(child), _parent_dir(child), doc, False)
+            if _path_seen(visited, child):
+                raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            visited.append(child)
+            _parse_into(_read_file(child), _parent_dir(child), doc, True, visited)
+            p.skip()
+            continue
+        if dollars == 0 and name == "export":
+            p.skip()
+            if p.peek() == 42:
+                p.pos += 1
+                doc.export_all = True
+            else:
+                doc.export_all = False
+                var exported = _parse_name_list(p)
+                for i in range(len(exported)):
+                    doc.export_names.append(exported[i])
+            p.skip()
+            continue
+        if dollars == 0 and name == "import":
+            if not allow_include:
+                raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            var want = _parse_name_list(p)
+            p.skip()
+            var from_kw = _ident(p)
+            if from_kw != "from":
+                raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            var rel = _parse_string(p)
+            var child = _join_path(base_dir, rel)
+            if _path_seen(visited, child):
+                raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            var before = len(doc.def_names)
+            var prev_all = doc.export_all
+            var prev_n = len(doc.export_names)
+            doc.export_all = True
+            visited.append(child)
+            _parse_into(_read_file(child), _parent_dir(child), doc, True, visited)
+            var child_all = doc.export_all
+            if not child_all:
+                for i in range(len(want)):
+                    var ok = False
+                    for j in range(prev_n, len(doc.export_names)):
+                        if doc.export_names[j] == want[i]:
+                            ok = True
+                    if not ok:
+                        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            for i in range(len(want)):
+                var found = False
+                for j in range(before, len(doc.def_names)):
+                    if doc.def_names[j] == want[i]:
+                        found = True
+                if not found:
+                    raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+            doc.export_all = prev_all
             p.skip()
             continue
         p.skip()

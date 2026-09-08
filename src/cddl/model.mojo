@@ -79,6 +79,8 @@ struct CddlDoc(Movable):
     var socket_group: List[Bool]
     var socket_start: List[Int]
     var socket_count: List[Int]
+    var export_names: List[String]
+    var export_all: Bool
 
     def __init__(out self):
         self.types = List[CddlType]()
@@ -91,6 +93,8 @@ struct CddlDoc(Movable):
         self.socket_group = List[Bool]()
         self.socket_start = List[Int]()
         self.socket_count = List[Int]()
+        self.export_names = List[String]()
+        self.export_all = True
 
     def add_type(mut self, t: CddlType) -> Int:
         var i = len(self.types)

@@ -1,0 +1,5 @@
+include "leaf.cddl"
+
+Mid = {
+  leaf: Leaf,
+}

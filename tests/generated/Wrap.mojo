@@ -24,17 +24,14 @@ from cbor import (
 from runtime.value import decode_item, CborValue
 
 
-struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
-    var name: String
-    var qty: Int64
+struct Wrap(Copyable, Movable, Defaultable, Deinitable, CborDatum):
+    var x: Alt
 
     def __init__(out self):
-        self.name = String()
-        self.qty = Int64(0)
+        self.x = Alt()
 
-    def __init__(out self, var name: String, var qty: Int64):
-        self.name = name^
-        self.qty = qty^
+    def __init__(out self, var x: Alt):
+        self.x = x^
 
     def encoded_len(self, options: EncodeOptions) -> Int:
         var w = WireWriter()
@@ -45,12 +42,9 @@ struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
     def encode_to(self, mut w: WireWriter, options: EncodeOptions):
         var n = 0
         n += 1
-        n += 1
         w.write_map_len(n)
-        w.write_tstr("name")
-        w.write_tstr(self.name)
-        w.write_tstr("qty")
-        w.write_int(self.qty)
+        w.write_tstr("x")
+        self.x.encode_to(w, options)
 
     def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
         var node = tmp.nodes[idx]
@@ -64,10 +58,10 @@ struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
                 continue
             var key = tmp.texts[Int(kn.a)]
             var vn = tmp.kids[k0 + i * 2 + 1]
-            if key == "name":
-                self.name = tmp.texts[Int(tmp.nodes[vn].a)]
-            if key == "qty":
-                self.qty = tmp.nodes[vn].a
+            if key == "x":
+                var _c = Alt()
+                _c._from_node(tmp, vn)
+                self.x = _c^
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var tmp = CborValue()

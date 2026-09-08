@@ -29,7 +29,7 @@ from runtime.tags import (
     encode_tag24,
     encode_tag32,
 )
-from runtime.view import decode_tstr_span
+from runtime.view import decode_tstr_chunks, decode_tstr_span
 from runtime.value import (
     CK_ARRAY,
     CK_BYTES,

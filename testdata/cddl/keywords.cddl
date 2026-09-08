@@ -1,0 +1,6 @@
+; Mojo keywords become identifiers with a trailing underscore.
+
+struct = {
+  fn: int,
+  var: tstr,
+}

@@ -1,5 +1,9 @@
 # Instructions
 
+If you have not used CBOR before, start with [Why CBOR](why-cbor.md). That
+page explains the head byte, major types, preferred encoding, and diagnostic
+notation that the rest of these steps assume.
+
 ## Install Mojo 1.0.0
 
 ```bash
@@ -56,7 +60,8 @@ var m2 = decode[Message](buf)
 CDDL sockets (`$name /= type`), generic applications (`map<int, tstr>`),
 `.regexp` controls, unwrap (`~Group`), `.bits` / `.and` / `.within` /
 `.andcbor`, and one `include "other.cddl"` parse in Mojo. The included file
-cannot include another file.
+cannot include a file already on the include stack (cycles are rejected).
+`export Name` and `import Name from "file.cddl"` load a catalog.
 
 `SeqDecoder` pulls one sequence item at a time. `decode_tstr_span` returns a
 `StringSpan` into the input for a definite text string.

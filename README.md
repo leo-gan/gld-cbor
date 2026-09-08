@@ -11,8 +11,8 @@ to encode or decode at runtime.
 This repository is a standalone library. It is not part of any other project.
 
 Documentation: [leo-gan.github.io/gld-cbor](https://leo-gan.github.io/gld-cbor/).
-That site has the install steps, CDDL walkthrough, examples, and test-data
-notes.
+That site has a CBOR format overview for new readers, the install steps, CDDL
+walkthrough, examples, and test-data notes.
 
 ## Install
 

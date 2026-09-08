@@ -6,10 +6,17 @@ from runtime.error import DecodeError
 struct _Re(Movable):
     var pat: List[Byte]
     var text: List[Byte]
+    var cap_s: List[Int]
+    var cap_e: List[Int]
 
     def __init__(out self, var pat: List[Byte], var text: List[Byte]):
         self.pat = pat^
         self.text = text^
+        self.cap_s = List[Int]()
+        self.cap_e = List[Int]()
+        for _i in range(10):
+            self.cap_s.append(-1)
+            self.cap_e.append(-1)
 
     def _at(self, i: Int) -> Int:
         if i >= len(self.pat):
@@ -47,16 +54,28 @@ def _hex(c: Int) -> Int:
 
 
 def _escape(re: _Re, pp: Int) raises DecodeError -> Tuple[Int, Int]:
-    # returns (char_or_class, new_pp). class codes: -2=\d -3=\w -4=\s -5=not used
+    # class: -2=\d -3=\w -4=\s -6=\D -7=\W -8=\S -9=\b -11=\B; -20-n = backref n
     if pp >= len(re.pat):
         raise DecodeError(DecodeError.KIND_CDDL, pp)
     var e = re._at(pp)
     if e == 100:  # d
         return (-2, pp + 1)
+    if e == 68:  # D
+        return (-6, pp + 1)
     if e == 119:  # w
         return (-3, pp + 1)
+    if e == 87:  # W
+        return (-7, pp + 1)
     if e == 115:  # s
         return (-4, pp + 1)
+    if e == 83:  # S
+        return (-8, pp + 1)
+    if e == 98:  # b
+        return (-9, pp + 1)
+    if e == 66:  # B
+        return (-11, pp + 1)
+    if e >= 49 and e <= 57:
+        return (-20 - (e - 48), pp + 1)
     if e == 110:  # n
         return (10, pp + 1)
     if e == 116:  # t
@@ -64,6 +83,45 @@ def _escape(re: _Re, pp: Int) raises DecodeError -> Tuple[Int, Int]:
     if e == 114:  # r
         return (13, pp + 1)
     return (e, pp + 1)
+
+
+def _group_kind(re: _Re, pp: Int) -> Tuple[Int, Int]:
+    # 0 capturing, 1 (?: 2 (?= 3 (?! 4 (?<= 5 (?<!
+    if re._at(pp + 1) != 63:
+        return (0, pp + 1)
+    var c = re._at(pp + 2)
+    if c == 58:
+        return (1, pp + 3)
+    if c == 61:
+        return (2, pp + 3)
+    if c == 33:
+        return (3, pp + 3)
+    if c == 60:
+        var d = re._at(pp + 3)
+        if d == 61:
+            return (4, pp + 4)
+        if d == 33:
+            return (5, pp + 4)
+    return (0, pp + 1)
+
+
+def _capturing_index(re: _Re, pp: Int) -> Int:
+    var n = 0
+    var i = 0
+    while i <= pp:
+        if re._at(i) == 40:
+            var k = _group_kind(re, i)
+            if k[0] == 0:
+                n += 1
+            if i == pp:
+                return n
+            i = k[1]
+            continue
+        if re._at(i) == 92:
+            i += 2
+            continue
+        i += 1
+    return n
 
 
 def _class_match(re: _Re, pp: Int, ch: Int) raises DecodeError -> Tuple[Bool, Int]:
@@ -86,12 +144,24 @@ def _class_match(re: _Re, pp: Int, ch: Int) raises DecodeError -> Tuple[Bool, In
                 if ch >= 48 and ch <= 57:
                     ok = True
                 continue
+            if a == -6:
+                if ch < 48 or ch > 57:
+                    ok = True
+                continue
             if a == -3:
                 if _is_word(ch):
                     ok = True
                 continue
+            if a == -7:
+                if not _is_word(ch):
+                    ok = True
+                continue
             if a == -4:
                 if _is_space(ch):
+                    ok = True
+                continue
+            if a == -8:
+                if not _is_space(ch):
                     ok = True
                 continue
         else:
@@ -118,7 +188,7 @@ def _class_match(re: _Re, pp: Int, ch: Int) raises DecodeError -> Tuple[Bool, In
     return (ok, p + 1)
 
 
-def _match_atom(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int, Int]:
+def _match_atom(mut re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int, Int]:
     var c = re._at(pp)
     if c == -1:
         return (True, pp, tp)
@@ -134,16 +204,41 @@ def _match_atom(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int
         var es = _escape(re, pp + 1)
         var code = es[0]
         var np = es[1]
+        if code == -9 or code == -11:
+            var prev_w = tp > 0 and _is_word(re._txt(tp - 1))
+            var next_w = tp < len(re.text) and _is_word(re._txt(tp))
+            var boundary = prev_w != next_w
+            if code == -9:
+                return (boundary, np, tp)
+            return (not boundary, np, tp)
+        if code <= -21:
+            var gi = -code - 20
+            if gi < 1 or gi > 9 or re.cap_s[gi] < 0:
+                return (False, pp, tp)
+            var a = re.cap_s[gi]
+            var b = re.cap_e[gi]
+            var k = 0
+            while a + k < b:
+                if tp + k >= len(re.text) or re._txt(tp + k) != re._txt(a + k):
+                    return (False, pp, tp)
+                k += 1
+            return (True, np, tp + k)
         if tp >= len(re.text):
             return (False, pp, tp)
         var ch = re._txt(tp)
         var ok = False
         if code == -2:
             ok = ch >= 48 and ch <= 57
+        elif code == -6:
+            ok = ch < 48 or ch > 57
         elif code == -3:
             ok = _is_word(ch)
+        elif code == -7:
+            ok = not _is_word(ch)
         elif code == -4:
             ok = _is_space(ch)
+        elif code == -8:
+            ok = not _is_space(ch)
         else:
             ok = ch == code
         if not ok:
@@ -157,12 +252,47 @@ def _match_atom(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int
             return (False, pp, tp)
         return (True, cm[1], tp + 1)
     if c == 40:
-        var inner = _match_expr(re, pp + 1, tp)
-        if not inner[0]:
+        var kind = _group_kind(re, pp)
+        var body = kind[1]
+        if kind[0] == 1:
+            # (?:...)
+            var inner = _match_expr(re, body, tp)
+            if not inner[0] or re._at(inner[1]) != 41:
+                return (False, pp, tp)
+            return (True, inner[1] + 1, inner[2])
+        if kind[0] == 2 or kind[0] == 3:
+            var inner2 = _match_expr(re, body, tp)
+            var matched = inner2[0] and re._at(inner2[1]) == 41
+            var ok2 = matched
+            if kind[0] == 3:
+                ok2 = not matched
+            var endp = _atom_end(re, pp)
+            if not ok2:
+                return (False, pp, tp)
+            return (True, endp, tp)
+        if kind[0] == 4 or kind[0] == 5:
+            var endp2 = _atom_end(re, pp)
+            var found = False
+            var s = 0
+            while s <= tp:
+                var m = _match_expr(re, body, s)
+                if m[0] and m[2] == tp and re._at(m[1]) == 41:
+                    found = True
+                    break
+                s += 1
+            if kind[0] == 5:
+                found = not found
+            if not found:
+                return (False, pp, tp)
+            return (True, endp2, tp)
+        var g = _capturing_index(re, pp)
+        var inner3 = _match_expr(re, body, tp)
+        if not inner3[0] or re._at(inner3[1]) != 41:
             return (False, pp, tp)
-        if re._at(inner[1]) != 41:
-            raise DecodeError(DecodeError.KIND_CDDL, inner[1])
-        return (True, inner[1] + 1, inner[2])
+        if g >= 1 and g <= 9:
+            re.cap_s[g] = tp
+            re.cap_e[g] = inner3[2]
+        return (True, inner3[1] + 1, inner3[2])
     if tp >= len(re.text) or re._txt(tp) != c:
         return (False, pp, tp)
     return (True, pp + 1, tp + 1)
@@ -177,10 +307,36 @@ def _quant(re: _Re, pp: Int) -> Tuple[Int, Int, Int]:
         return (1, -1, pp + 1)
     if c == 63:
         return (0, 1, pp + 1)
+    if c == 123:
+        var p = pp + 1
+        var mn = 0
+        var digits = False
+        while re._at(p) >= 48 and re._at(p) <= 57:
+            mn = mn * 10 + (re._at(p) - 48)
+            p += 1
+            digits = True
+        if not digits:
+            return (1, 1, pp)
+        if re._at(p) == 125:
+            return (mn, mn, p + 1)
+        if re._at(p) != 44:
+            return (1, 1, pp)
+        p += 1
+        if re._at(p) == 125:
+            return (mn, -1, p + 1)
+        var mx = 0
+        var d2 = False
+        while re._at(p) >= 48 and re._at(p) <= 57:
+            mx = mx * 10 + (re._at(p) - 48)
+            p += 1
+            d2 = True
+        if d2 and re._at(p) == 125:
+            return (mn, mx, p + 1)
+        return (1, 1, pp)
     return (1, 1, pp)
 
 
-def _factor_ends(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Int, List[Int]]:
+def _factor_ends(mut re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Int, List[Int]]:
     """Return (pattern_after_factor, text positions after 0..n greedy matches)."""
     var atom_end = _atom_end(re, pp)
     var q = _quant(re, atom_end)
@@ -197,6 +353,9 @@ def _factor_ends(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Int, Lis
         if not one[0]:
             break
         if one[2] == cur:
+            count += 1
+            if count >= mn:
+                pos.append(cur)
             break
         cur = one[2]
         count += 1
@@ -248,7 +407,7 @@ def _skip_expr(re: _Re, pp: Int) raises DecodeError -> Int:
         p = q2[2]
 
 
-def _match_term(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int, Int]:
+def _match_term(mut re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int, Int]:
     var c = re._at(pp)
     if c == -1 or c == 41 or c == 124:
         return (True, pp, tp)
@@ -263,7 +422,7 @@ def _match_term(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int
     return (False, pp, tp)
 
 
-def _match_expr(re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int, Int]:
+def _match_expr(mut re: _Re, pp: Int, tp: Int) raises DecodeError -> Tuple[Bool, Int, Int]:
     var first = _match_term(re, pp, tp)
     if first[0] and (re._at(first[1]) != 124):
         return first
@@ -298,7 +457,12 @@ def _skip_expr_alt(re: _Re, pp: Int) raises DecodeError -> Int:
 
 
 def regexp_fullmatch(pattern: String, text: String) raises DecodeError -> Bool:
-    """True when `pattern` matches all of `text`. Subset: concatenation, `|`, `*+?`, `.`, `[]`, `()`, `\\d\\w\\s`."""
+    """True when `pattern` matches all of `text`.
+
+    Supports concatenation, `|`, `*+?`, `{n,m}`, `.`, `[]`, capturing `()`,
+    `(?:)`, lookahead, lookbehind, backreferences `\\1`–`\\9`, and
+    `\\d\\D\\w\\W\\s\\S\\b\\B`.
+    """
     var pb = List[Byte]()
     var tb = List[Byte]()
     var ps = pattern.as_bytes()

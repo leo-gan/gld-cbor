@@ -3,17 +3,29 @@ from std.testing import TestSuite, assert_equal, assert_true
 from bytes_util import bytes_of
 from cbor import (
     BigFloat,
+    BigNint,
+    BigUint,
     DecimalFraction,
     EpochTime,
+    Uri,
     decode_tag0,
     decode_tag1,
+    decode_tag2,
+    decode_tag3,
     decode_tag4,
     decode_tag5,
+    decode_tag24,
+    decode_tag32,
     decode_value,
     encode_tag0,
     encode_tag1,
+    encode_tag2,
+    encode_tag3,
     encode_tag4,
     encode_tag5,
+    encode_tag24,
+    encode_tag32,
+    encode_value,
 )
 
 
@@ -41,6 +53,38 @@ def test_tag4_decimal() raises:
     var d = decode_tag4(decode_value(buf))
     assert_equal(d.exp, Int64(-2))
     assert_equal(d.mant, Int64(27315))
+
+
+def test_tag2_biguint() raises:
+    var raw = bytes_of(0x01, 0x00)
+    var buf = encode_tag2(BigUint(raw^))
+    assert_equal(Int(buf[0]), 0xC2)
+    var n = decode_tag2(decode_value(buf))
+    assert_equal(len(n.bytes), 2)
+    assert_equal(Int(n.bytes[0]), 0x01)
+
+
+def test_tag3_bignint() raises:
+    var raw = bytes_of(0x01)
+    var buf = encode_tag3(BigNint(raw^))
+    assert_equal(Int(buf[0]), 0xC3)
+    var n = decode_tag3(decode_value(buf))
+    assert_equal(len(n.bytes), 1)
+
+
+def test_tag24_embedded() raises:
+    var inner = decode_value(bytes_of(0x01))
+    var buf = encode_tag24(inner)
+    assert_equal(Int(buf[0]), 0xD8)
+    var got = decode_tag24(decode_value(buf))
+    assert_equal(got.nodes[got.root].a, Int64(1))
+
+
+def test_tag32_uri() raises:
+    var buf = encode_tag32(Uri("https://example.com"))
+    assert_equal(Int(buf[0]), 0xD8)
+    var u = decode_tag32(decode_value(buf))
+    assert_equal(u.text, "https://example.com")
 
 
 def test_tag5_bigfloat() raises:

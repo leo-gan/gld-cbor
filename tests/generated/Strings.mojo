@@ -1,6 +1,7 @@
 from std.collections import List, Optional, Span
 
 from cbor import (
+    Box,
     CborDatum,
     DecodeError,
     EncodeOptions,
@@ -29,6 +30,9 @@ struct Strings(Copyable, Movable, Defaultable, Deinitable, CborDatum):
     def __init__(out self):
         self.items = List[String]()
 
+    def __init__(out self, var items: List[String]):
+        self.items = items^
+
     def encoded_len(self, options: EncodeOptions) -> Int:
         var w = WireWriter()
         self.encode_to(w, options)
@@ -44,12 +48,10 @@ struct Strings(Copyable, Movable, Defaultable, Deinitable, CborDatum):
         for _i in range(len(self.items)):
             w.write_tstr(self.items[_i])
 
-    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
-        var tmp = CborValue()
-        var root = decode_item(r, tmp)
-        var node = tmp.nodes[root]
+    def _from_node(mut self, tmp: CborValue, idx: Int) raises DecodeError:
+        var node = tmp.nodes[idx]
         if node.kind != CK_MAP:
-            raise DecodeError(DecodeError.KIND_TYPE, r.position())
+            raise DecodeError(DecodeError.KIND_TYPE, 0)
         var pairs = Int(node.b)
         var k0 = Int(node.a)
         for i in range(pairs):
@@ -66,3 +68,7 @@ struct Strings(Copyable, Movable, Defaultable, Deinitable, CborDatum):
                     for _j in range(Int(an.b)):
                         self.items.append(tmp.texts[Int(tmp.nodes[tmp.kids[a0 + _j]].a)])
 
+    def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
+        var tmp = CborValue()
+        var root = decode_item(r, tmp)
+        self._from_node(tmp, root)

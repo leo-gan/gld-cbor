@@ -1,0 +1,9 @@
+export Leaf
+
+Leaf = {
+  n: int,
+}
+
+Hidden = {
+  z: tstr,
+}

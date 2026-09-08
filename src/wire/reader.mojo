@@ -107,6 +107,41 @@ struct WireReader[origin: ImmOrigin](Movable):
         self.pos += n
         return span_from_utf8(self.data[start : start + n], at)
 
+    def read_text_chunks(mut self) raises DecodeError -> List[StringSpan[Self.origin]]:
+        """Zero-copy views of each definite tstr chunk, including indefinite text."""
+        var at = self.pos
+        var h = self.read_head()
+        if h[0] != 3:
+            raise DecodeError(DecodeError.KIND_TYPE, at)
+        var out = List[StringSpan[Self.origin]]()
+        if h[2] != AI_INDEF:
+            var n = Int(h[1])
+            if n < 0 or n > MAX_ITEM_BYTES:
+                raise DecodeError(DecodeError.KIND_RANGE, at)
+            if n > self.remaining():
+                raise DecodeError(DecodeError.KIND_EOF, self.pos)
+            var start = self.pos
+            self.pos += n
+            out.append(span_from_utf8(self.data[start : start + n], at))
+            return out^
+        var total = 0
+        while True:
+            if self.read_break_or_item():
+                return out^
+            var cat = self.pos
+            var ch = self.read_head()
+            if ch[0] != 3 or ch[2] == AI_INDEF:
+                raise DecodeError(DecodeError.KIND_INDEF, cat)
+            var cn = Int(ch[1])
+            if cn < 0 or total + cn > MAX_ITEM_BYTES:
+                raise DecodeError(DecodeError.KIND_RANGE, cat)
+            if cn > self.remaining():
+                raise DecodeError(DecodeError.KIND_EOF, self.pos)
+            var cs = self.pos
+            self.pos += cn
+            out.append(span_from_utf8(self.data[cs : cs + cn], cat))
+            total += cn
+
     def skip_item(mut self) raises DecodeError:
         """Advance past one well-formed item without allocating an arena."""
         var at = self.pos

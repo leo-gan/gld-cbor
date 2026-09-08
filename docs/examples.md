@@ -39,6 +39,9 @@ trailing bytes.
 
 ## Diagnostic notation
 
+[Why CBOR](why-cbor.md#diagnostic-notation) lists the text forms these
+functions read and write.
+
 ```mojo
 from cbor import decode_diag, encode_diag
 
@@ -63,6 +66,7 @@ var dec = encode_tag4(DecimalFraction(Int64(-2), Int64(27315)))
 from cbor import decode_tstr_span, SeqDecoder
 
 var sl = decode_tstr_span(buf)   # StringSpan into buf; definite tstr only
+# decode_tstr_chunks(buf) views each definite chunk of indefinite text
 var dec = SeqDecoder(seq_buf)
 while dec.has_more():
     var item = dec.next_value()  # or dec.skip()

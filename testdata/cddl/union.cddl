@@ -1,0 +1,7 @@
+; Tagged union: int / tstr.
+
+Alt = int / tstr
+
+Wrap = {
+  x: Alt,
+}

@@ -10,8 +10,8 @@ Mojo. They do not wrap libcbor or any other C, C++, or Rust CBOR library.
 
     ---
 
-    What the format is for, how major types and preferred encoding work, and
-    why the encoder is not a wrapper around a native library.
+    What CBOR is, how the head byte and major types work, and how preferred
+    encoding, CDE, sequences, tags, and diagnostic notation fit together.
 
     [:octicons-arrow-right-24: Read Why CBOR](why-cbor.md)
 
