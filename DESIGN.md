@@ -19,7 +19,7 @@ There is no production CBOR implementation for Modular Mojo as of 2026-09-08 (Gi
 
 **Hard product constraint:** the shipped runtime and the codegen walker have **zero C, C++, or Rust CBOR library dependencies**. They do not wrap, link, FFI, bind, or vendor libcbor, tinycbor, cn-cbor, QCBOR, ciborium, minicbor, serde_cbor, or cbor-diag. Python `cbor2` is a **test oracle** only. No host CDDL compiler is required to run codegen.
 
-v1 ships the full encoding surface the user locked: RFC 8949 complete (definite and indefinite lengths, tags, simple values, half/float/double), RFC 8742 CBOR Sequences, and diagnostic notation. Both codegen and `CborValue` ship in v1. Default write is RFC 8949 **preferred serialization** (§4.1): shortest arguments, definite lengths, shortest value-preserving float, **no map-key sort**. Optional write is RFC 8949 **core deterministic encoding** (§4.2.1), which this library calls CDE and aligns with `draft-ietf-cbor-cde`: preferred plus encoded-key sort and no duplicate keys. Strict decode re-encodes with CDE and compares bytes. Standard tags 0, 1, 2, 3, 24, and 32 have first-class codecs.
+v1 ships the full encoding surface the user locked: RFC 8949 complete (definite and indefinite lengths, tags, simple values, half/float/double), RFC 8742 CBOR Sequences, and diagnostic notation. Both codegen and `CborValue` ship in v1. Default write is RFC 8949 **preferred serialization** (§4.1): shortest arguments, definite lengths, shortest value-preserving float, **no map-key sort**. Optional write is RFC 8949 **core deterministic encoding** (§4.2.1), which this library calls CDE and aligns with `draft-ietf-cbor-cde`: preferred plus encoded-key sort and no duplicate keys. Strict decode re-encodes with CDE and compares bytes. Standard tags 0, 1, 2, 3, 4, 5, 24, and 32 have first-class codecs.
 
 The first test records (`Message`, `Document`, `Telemetry`, `Strings`, `Event`, `Batch_*`, `LongList`, mutual `A`/`B`) live under this repo’s `testdata/` as ordinary unit and interop test material. They are not the product schema and they are not a dependency on any other repository.
 
@@ -61,10 +61,10 @@ The sibling libraries `gld-protobuf` and `gld-avro` proved the product shape: pi
 4. CLI `gld-cborgen-mojo` emits typed Mojo structs with explicit `encoded_len` / `encode_to` / `decode_from`.
 5. Dynamic `CborValue` (arena of nodes) for schema-free encode/decode of any well-formed item.
 6. Default write is preferred serialization (RFC 8949 §4.1). Optional CDE write and strict CDE decode (RFC 8949 §4.2.1 / `draft-ietf-cbor-cde`).
-7. First-class codecs for tags 0, 1, 2, 3, 24, 32. Other tags stay `CborTag(number, value)`.
+7. First-class codecs for tags 0, 1, 2, 3, 4, 5, 24, 32. Other tags stay `CborTag(number, value)`.
 8. CDDL `?` / optional map members map to `Optional[T]`.
 9. Interop on known data with official Python `cbor2`.
-10. Decoder walks a `Span[Byte]`. Encoder writes into a `List[Byte]` pre-sized from `encoded_len` when the size is known. Owned `String` / `List[Byte]` on decode.
+10. Decoder walks a `Span[Byte]`. Encoder writes into a `List[Byte]` pre-sized from `encoded_len` when the size is known. Owned `String` / `List[Byte]` on decode. Definite text can also be viewed as `StringSpan` (`decode_tstr_span` / `WireReader.read_text_span`). Sequences can be pulled one item at a time with `SeqDecoder` (`next_value` / `skip`) without buffering the whole input.
 11. Typed `DecodeError` with `kind: Int`, `offset: Int`, and `field: Int` (`0` means unknown).
 12. Independently useful library. Not coupled to any other project.
 13. Recursive named types in generated code: detect cycles on the named-type graph with strongly connected components. Emit heap `Box` for any field whose type (after unwrapping optional / array) is in the current type’s SCC. Testdata includes `LongList` and mutual `A`/`B`. Non-optional recursive fields are a codegen error.
@@ -75,18 +75,25 @@ The sibling libraries `gld-protobuf` and `gld-avro` proved the product shape: pi
 - Packed CBOR (RFC 9595).
 - dCBOR / Gordian deterministic profile beyond RFC 8949 §4.2.1 / `draft-ietf-cbor-cde`.
 - CBOR Pretty Printing beyond diagnostic notation.
-- CDDL sockets `$type` / `$$group`, generic parameterization, `.regexp` / `.pcre`, `.bits` / `.ibits`, `.and` / `.within` / `.andcbor`, and multi-file `export` catalogs. Local `include` of one extra `.cddl` file is later, not v1.
-- `bigfloat` / `decimalfraction` tag codecs (tags 4 and 5). They decode as `CborTag`.
+- CDDL `.bits` / `.ibits`, `.and` / `.within` / `.andcbor`, and multi-file `export` catalogs. Local `include` of one extra `.cddl` file is later.
+- Full PCRE (lookbehind, backreferences). `.regexp` is the implemented subset; `.pcre` is accepted as an alias of that subset.
 - GPU encode/decode.
 - Reflection-driven encode of arbitrary non-generated Mojo structs.
 - C/C++/Rust CBOR libraries, even as an optional path.
 
 ### Later (explicitly planned, not v1)
 
-- CDDL sockets, generics, and regexp controls.
-- Tags 4 and 5 first-class codecs.
-- Zero-copy `StringSpan` views on decode.
-- Streaming pull decoder that yields items from a sequence without buffering the whole input.
+These four items are implemented (2026-09-08):
+
+- CDDL sockets (`$name` / `$$name` with `/=` and `//=` plugs), generic application `name<T, U>`, and `.regexp` / `.pcre` controls.
+- Tags 4 and 5 first-class codecs (`DecimalFraction`, `BigFloat`).
+- Zero-copy `StringSpan` views on decode (`decode_tstr_span`, `WireReader.read_text_span`).
+- Streaming pull decoder (`SeqDecoder`) that yields or skips one sequence item without buffering the rest.
+
+Still later:
+
+- CDDL `.bits` / `.ibits` / `.and` / `.within` / `.andcbor`, file `include`, and full PCRE.
+- Zero-copy views of indefinite text (requires concatenation, so v1 still copies).
 
 ---
 
@@ -464,8 +471,10 @@ Public constructors on the facade: `cbor_int`, `cbor_uint`, `cbor_text`, `cbor_b
 | 3 | bstr | `BigNint` (`var bytes: List[Byte]`) value is `−1 − n` | tag 3 + bstr of `n`: empty for −1 (`n = 0`), no leading zeros | require bstr |
 | 24 | bstr of one item | `EncodedCbor` (`var item: CborValue`) | tag 24 + definite bstr of preferred/CDE inner | require bstr; parse exactly one inner item |
 | 32 | tstr URI | `Uri` (`var text: String`) | tag 32 + text | require text; `KIND_TAG` if empty or contains a space |
+| 4 | array `[exp, mantissa]` | `DecimalFraction` | tag 4 + 2-array | value is mantissa × 10^exp. Mantissa may be int or tag 2/3 |
+| 5 | array `[exp, mantissa]` | `BigFloat` | tag 5 + 2-array | value is mantissa × 2^exp. Mantissa may be int or tag 2/3 |
 
-Unknown tags stay `CborTag`. Generated CDDL `#6.n(T)` fields use the matching codec when `n` is one of the six; otherwise they are `CborTag` with typed content `T`.
+Unknown tags stay `CborTag`. Generated CDDL `#6.n(T)` fields use the matching codec when `n` is one of the eight; otherwise they are `CborTag` with typed content `T`. Prelude names `decimalfraction` and `bigfloat` are tags 4 and 5.
 
 Preferred and CDE encode of a numeric value that fits `Int64` or `UInt64` uses major 0 or 1, not tags 2/3. `BigUint` / `BigNint` are **always-tagged** types: the caller asked for a bignum, so encode always writes tag 2/3. Zero is an empty bstr (`C2 40` / `C3 40`).
 
@@ -477,7 +486,7 @@ Preferred and CDE encode of a numeric value that fits `Int64` or `UInt64` uses m
 
 Tokens: identifiers, integers, floats, text literals, `/` `=>` `:` `=` `/=` `?` `*` `+` `(` `)` `[` `]` `{` `}` `<` `>` `,` `.` `..` `...` `#` `#6.N` control names (`.size` …), `;` line comments. `;` comments run to end of line. Whitespace is ignored.
 
-v1 **rejects** these with `CddlError` at parse time (not later in codegen): `//` group choice, `//=`, unwrap `~`, sockets `$` / `$$`, generic parameterization `<…>`, `.regexp`, `.pcre`, `.bits`, `.ibits`, `.and`, `.within`, `.andcbor`.
+The parser **rejects** unwrap `~`, `.bits` / `.ibits`, `.and` / `.within` / `.andcbor`. It **accepts** sockets (`$name`, `$$name`, `/=`, `//=`), generic application `name<T, U>`, and `.regexp` / `.pcre`. Group choice `//` inside a type is still rejected; `//=` is only an assignment operator for group sockets.
 
 ### Grammar accepted
 
@@ -782,7 +791,7 @@ All product forks (license, surface, APIs, canonicity, CDDL, Optional[T], tag co
 7. **v1 APIs:** codegen and `CborValue`.
 8. **Preferred write is RFC 8949 §4.1** (shortest args, definite, shortest float, **no map sort**). CDE write is RFC 8949 §4.2.1 / `draft-ietf-cbor-cde` (preferred plus encoded-key sort, no duplicates). Strict decode is re-encode-and-compare against CDE. Identity write preserves width, NaN payload, and the `indef` bit.
 9. **Parse CDDL in Mojo** (v1 subset). No host CDDL compiler.
-10. **Optional members are `Optional[T]`.** First-class codecs for tags 0, 1, 2, 3, 24, 32.
+10. **Optional members are `Optional[T]`.** First-class codecs for tags 0, 1, 2, 3, 4, 5, 24, 32.
 11. **`CborValue` is an arena of nodes** so Mojo 1.0 Deinitable recursion does not block the model.
 12. **Integer policy:** `INT` (`Int64`) when it fits; `UINT` for major-0 values in 2^63…2^64−1; otherwise `KIND_RANGE` unless tag 2/3.
 13. **Generic maps keep all pairs.** Last-wins only when projecting to a generated struct or text map. Preferred/CDE write rejects duplicates.

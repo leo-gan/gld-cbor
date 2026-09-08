@@ -50,7 +50,20 @@ var text = encode_diag(v)
 
 ```mojo
 from cbor import encode_tag0, decode_tag0, decode_value
+from cbor import DecimalFraction, encode_tag4, decode_tag4
 
 var buf = encode_tag0("2013-03-21T20:04:00Z")
 var s = decode_tag0(decode_value(buf))
+var dec = encode_tag4(DecimalFraction(Int64(-2), Int64(27315)))
+```
+
+## Zero-copy text and streaming sequences
+
+```mojo
+from cbor import decode_tstr_span, SeqDecoder
+
+var sl = decode_tstr_span(buf)   # StringSpan into buf; definite tstr only
+var dec = SeqDecoder(seq_buf)
+while dec.has_more():
+    var item = dec.next_value()  # or dec.skip()
 ```

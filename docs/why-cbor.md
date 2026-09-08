@@ -44,5 +44,5 @@ used in the RFC examples (`[1, 2]`, `h'a1b2'`, `1(1363896240)`).
 ## Standard tags
 
 This library has first-class codecs for tags 0 (RFC 3339 date-time), 1 (epoch),
-2 and 3 (bignums), 24 (encoded CBOR), and 32 (URI). Other tags stay as
-`CborTag`.
+2 and 3 (bignums), 4 (decimal fraction), 5 (bigfloat), 24 (encoded CBOR), and
+32 (URI). Other tags stay as `CborTag`.

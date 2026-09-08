@@ -15,6 +15,11 @@ comptime CT_ARRAY = 10
 comptime CT_OPTIONAL = 11
 comptime CT_CHOICE = 12
 comptime CT_TAG = 13
+comptime CT_SOCKET = 14
+comptime CT_GENERIC = 15
+comptime CT_REGEXP = 16
+comptime CT_CONTROL = 17
+comptime CT_VALUE = 18
 
 
 struct CddlMember(Copyable, ImplicitlyCopyable, Movable):
@@ -67,14 +72,44 @@ struct CddlDoc(Movable):
     var members: List[CddlMember]
     var def_names: List[String]
     var def_types: List[Int]
+    var extras: List[Int]
+    var param_names: List[String]
+    var socket_names: List[String]
+    var socket_group: List[Bool]
+    var socket_start: List[Int]
+    var socket_count: List[Int]
 
     def __init__(out self):
         self.types = List[CddlType]()
         self.members = List[CddlMember]()
         self.def_names = List[String]()
         self.def_types = List[Int]()
+        self.extras = List[Int]()
+        self.param_names = List[String]()
+        self.socket_names = List[String]()
+        self.socket_group = List[Bool]()
+        self.socket_start = List[Int]()
+        self.socket_count = List[Int]()
 
     def add_type(mut self, t: CddlType) -> Int:
         var i = len(self.types)
         self.types.append(t)
         return i
+
+    def find_socket(self, name: String) -> Int:
+        for i in range(len(self.socket_names)):
+            if self.socket_names[i] == name:
+                return i
+        return -1
+
+    def add_socket(mut self, name: String, group: Bool) -> Int:
+        var i = len(self.socket_names)
+        self.socket_names.append(name)
+        self.socket_group.append(group)
+        self.socket_start.append(len(self.extras))
+        self.socket_count.append(0)
+        return i
+
+    def add_plug(mut self, sock: Int, ty: Int):
+        self.extras.append(ty)
+        self.socket_count[sock] = self.socket_count[sock] + 1

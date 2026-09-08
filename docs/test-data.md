@@ -17,6 +17,7 @@ shared external suite and they are not a product schema.
 | `benchmark_v2.cddl` | `Message`, `Document`, `Telemetry`, and the other v2 shapes |
 | `longlist.cddl` | Recursive optional record |
 | `tags.cddl` | Standard tags 0, 1, 32 |
+| `later.cddl` | Sockets, generic application, `.regexp` |
 
 ## Golden vectors
 

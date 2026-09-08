@@ -8,17 +8,47 @@ from wire.reader import WireReader
 from wire.writer import WireWriter
 
 
-def decode_seq_values[origin: ImmOrigin](buf: Span[Byte, origin]) raises DecodeError -> List[CborValue]:
-    var r = WireReader(buf)
-    var out = List[CborValue]()
-    var n = 0
-    while r.remaining() > 0:
-        if n >= MAX_COUNT:
-            raise DecodeError(DecodeError.KIND_RANGE, r.position())
+struct SeqDecoder[origin: ImmOrigin](Movable):
+    """Pull one RFC 8742 item at a time. Dropping the returned value frees it."""
+
+    var reader: WireReader[Self.origin]
+    var seen: Int
+
+    def __init__(out self, buf: Span[Byte, Self.origin]):
+        self.reader = WireReader(buf)
+        self.seen = 0
+
+    def has_more(self) -> Bool:
+        return self.reader.remaining() > 0
+
+    def position(self) -> Int:
+        return self.reader.position()
+
+    def next_value(mut self) raises DecodeError -> CborValue:
+        if not self.has_more():
+            raise DecodeError(DecodeError.KIND_EOF, self.reader.position())
+        if self.seen >= MAX_COUNT:
+            raise DecodeError(DecodeError.KIND_RANGE, self.reader.position())
         var v = CborValue()
-        v.root = decode_item(r, v)
-        out.append(v^)
-        n += 1
+        v.root = decode_item(self.reader, v)
+        self.seen += 1
+        return v^
+
+    def skip(mut self) raises DecodeError:
+        """Advance past the next item without building a `CborValue`."""
+        if not self.has_more():
+            raise DecodeError(DecodeError.KIND_EOF, self.reader.position())
+        if self.seen >= MAX_COUNT:
+            raise DecodeError(DecodeError.KIND_RANGE, self.reader.position())
+        self.reader.skip_item()
+        self.seen += 1
+
+
+def decode_seq_values[origin: ImmOrigin](buf: Span[Byte, origin]) raises DecodeError -> List[CborValue]:
+    var dec = SeqDecoder(buf)
+    var out = List[CborValue]()
+    while dec.has_more():
+        out.append(dec.next_value())
     return out^
 
 
