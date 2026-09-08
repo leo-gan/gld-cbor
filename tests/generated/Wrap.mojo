@@ -39,18 +39,25 @@ struct Wrap(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
+        var _expect = 0
         for _i in range(_pairs):
             var _ks = 0
             var _kn = 0
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if _kn == 1:
-                if r.bytes_eq(_ks, _kn, "x"):
-                    var _c = Alt()
-                    _c.decode_from(r)
-                    self.x = _c^
+            if _expect == 0 and r.bytes_eq(_ks, _kn, "x"):
+                var _c = Alt()
+                _c.decode_from(r)
+                self.x = _c^
+                _expect = 1
+            else:
+                if _kn == 1:
+                    if r.bytes_eq(_ks, _kn, "x"):
+                        var _c = Alt()
+                        _c.decode_from(r)
+                        self.x = _c^
+                    else:
+                        r.skip_item()
                 else:
                     r.skip_item()
-            else:
-                r.skip_item()

@@ -52,21 +52,29 @@ struct Item(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var _pairs = r.read_map_len()
+        var _expect = 0
         for _i in range(_pairs):
             var _ks = 0
             var _kn = 0
             if not r.take_definite_tstr(_ks, _kn):
                 r.skip_item()
                 continue
-            if _kn == 4:
-                if r.bytes_eq(_ks, _kn, "name"):
-                    self.name = r.read_tstr()
-                else:
-                    r.skip_item()
-            elif _kn == 3:
-                if r.bytes_eq(_ks, _kn, "qty"):
-                    self.qty = r.read_int64()
-                else:
-                    r.skip_item()
+            if _expect == 0 and r.bytes_eq(_ks, _kn, "name"):
+                self.name = r.read_tstr()
+                _expect = 1
+            elif _expect == 1 and r.bytes_eq(_ks, _kn, "qty"):
+                self.qty = r.read_int64()
+                _expect = 2
             else:
-                r.skip_item()
+                if _kn == 4:
+                    if r.bytes_eq(_ks, _kn, "name"):
+                        self.name = r.read_tstr()
+                    else:
+                        r.skip_item()
+                elif _kn == 3:
+                    if r.bytes_eq(_ks, _kn, "qty"):
+                        self.qty = r.read_int64()
+                    else:
+                        r.skip_item()
+                else:
+                    r.skip_item()

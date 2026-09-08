@@ -1,7 +1,7 @@
 from diag.emit import encode_diag, encode_diag_pretty
 from diag.parse import decode_diag
 from runtime.box import Box
-from runtime.datum import CborDatum, decode, encode
+from runtime.datum import CborDatum, decode, encode, encode_into
 from runtime.error import DecodeError
 from runtime.options import EncodeOptions
 from runtime.seq import SeqDecoder, decode_seq_values, encode_seq_values

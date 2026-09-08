@@ -1,7 +1,7 @@
 from std.collections import List, Span
 from std.memory import unsafe_memcpy
 
-from wire.head import extra_len, write_break, write_head, write_head_raw
+from wire.head import extra_len, head_byte, shortest_ai
 from wire.half import f32_to_bits, f64_to_bits, f64_to_half_bits, half_to_f64
 
 
@@ -33,47 +33,86 @@ def encoded_float_preferred_len(v: Float64) -> Int:
 
 
 struct WireWriter(Movable):
-    """Appends CBOR bytes into one `List[Byte]`."""
+    """Writes CBOR into one `List[Byte]` at a cursor.
+
+    `encode` pre-sizes the list to `encoded_len` so the hot path stores
+    bytes without growing. `ensure` only runs when the estimate was short.
+    """
 
     var buf: List[Byte]
+    var pos: Int
 
-    def __init__(out self, *, capacity: Int = 64):
-        self.buf = List[Byte](capacity=capacity)
+    def __init__(out self, *, capacity: Int = 64, exact: Bool = False):
+        if exact and capacity > 0:
+            self.buf = List[Byte](unsafe_uninit_length=capacity)
+        else:
+            self.buf = List[Byte](capacity=capacity)
+        self.pos = 0
+
+    def __init__(out self, var buf: List[Byte], *, pos: Int = 0):
+        self.buf = buf^
+        self.pos = pos
+
+    def ensure(mut self, n: Int):
+        var need = self.pos + n
+        if need > len(self.buf):
+            self.buf.resize(unsafe_uninit_length=need)
 
     def write_byte(mut self, b: Byte):
-        self.buf.append(b)
+        self.ensure(1)
+        self.buf[self.pos] = b
+        self.pos += 1
 
     def write_bytes[origin: ImmOrigin](mut self, data: Span[Byte, origin]):
         var n = len(data)
         if n == 0:
             return
-        var start = len(self.buf)
-        self.buf.resize(unsafe_uninit_length=start + n)
+        self.ensure(n)
         unsafe_memcpy(
-            dest=self.buf.unsafe_ptr().unsafe_offset(start),
+            dest=self.buf.unsafe_ptr().unsafe_offset(self.pos),
             src=data.unsafe_ptr(),
             count=n,
         )
+        self.pos += n
 
     def write_bytes_range(mut self, src: List[Byte], start: Int, n: Int):
         if n <= 0:
             return
-        var dst = len(self.buf)
-        self.buf.resize(unsafe_uninit_length=dst + n)
+        self.ensure(n)
         unsafe_memcpy(
-            dest=self.buf.unsafe_ptr().unsafe_offset(dst),
+            dest=self.buf.unsafe_ptr().unsafe_offset(self.pos),
             src=src.unsafe_ptr().unsafe_offset(start),
             count=n,
         )
+        self.pos += n
 
     def write_head(mut self, major: Int, argument: UInt64):
-        write_head(self.buf, major, argument)
+        var ai = shortest_ai(argument)
+        var extra = extra_len(ai)
+        self.ensure(1 + extra)
+        self.buf[self.pos] = head_byte(major, ai)
+        self.pos += 1
+        var i = extra
+        while i > 0:
+            i -= 1
+            var shift = UInt64(i) * UInt64(8)
+            self.buf[self.pos] = Byte((argument >> shift) & UInt64(0xFF))
+            self.pos += 1
 
     def write_head_raw(mut self, major: Int, ai: Int, argument: UInt64):
-        write_head_raw(self.buf, major, ai, argument)
+        var extra = extra_len(ai)
+        self.ensure(1 + extra)
+        self.buf[self.pos] = head_byte(major, ai)
+        self.pos += 1
+        var i = extra
+        while i > 0:
+            i -= 1
+            var shift = UInt64(i) * UInt64(8)
+            self.buf[self.pos] = Byte((argument >> shift) & UInt64(0xFF))
+            self.pos += 1
 
     def write_break(mut self):
-        write_break(self.buf)
+        self.write_byte(Byte(0xFF))
 
     def write_uint(mut self, v: UInt64):
         self.write_head(0, v)
@@ -150,4 +189,6 @@ struct WireWriter(Movable):
             self.write_float64_bits(parts[1])
 
     def finish(deinit self) -> List[Byte]:
+        if self.pos < len(self.buf):
+            self.buf.resize(unsafe_uninit_length=self.pos)
         return self.buf^

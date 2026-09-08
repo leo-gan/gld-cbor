@@ -83,13 +83,29 @@ struct Message(Copyable, Movable, Defaultable, Deinitable, CborDatum):
 
     def decode_from[origin: ImmOrigin](mut self, mut r: WireReader[origin]) raises DecodeError:
         var pairs = r.read_map_len()
+        var expect = 0
         for _i in range(pairs):
             var ks = 0
             var kn = 0
             if not r.take_definite_tstr(ks, kn):
                 r.skip_item()
                 continue
-            if kn == 5:
+            if expect == 0 and r.bytes_eq(ks, kn, "f_bool"):
+                self.f_bool = r.read_bool()
+                expect = 1
+            elif expect == 1 and r.bytes_eq(ks, kn, "f_int"):
+                self.f_int = r.read_int64()
+                expect = 2
+            elif expect == 2 and r.bytes_eq(ks, kn, "f_uint"):
+                self.f_uint = r.read_uint64()
+                expect = 3
+            elif expect == 3 and r.bytes_eq(ks, kn, "f_float"):
+                self.f_float = r.read_float64()
+                expect = 4
+            elif expect == 4 and r.bytes_eq(ks, kn, "f_text"):
+                self.f_text = r.read_tstr()
+                expect = 5
+            elif kn == 5:
                 if r.bytes_eq(ks, kn, "f_int"):
                     self.f_int = r.read_int64()
                 else:
