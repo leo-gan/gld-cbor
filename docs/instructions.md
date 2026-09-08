@@ -53,6 +53,11 @@ var m2 = decode[Message](buf)
 `from cbor import …` resolves with `mojo run -I src` in a checkout, or from
 `cbor.mojoc` after the package is installed.
 
+CDDL sockets (`$name /= type`), generic applications (`map<int, tstr>`), and
+`.regexp` controls parse in Mojo. `SeqDecoder` pulls one sequence item at a
+time. `decode_tstr_span` returns a `StringSpan` into the input for a definite
+text string.
+
 Schema-free items use `CborValue`:
 
 ```mojo

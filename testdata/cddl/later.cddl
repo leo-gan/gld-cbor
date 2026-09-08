@@ -1,0 +1,8 @@
+; Sockets, generic application, and regexp. Ordinary testdata.
+
+$choice = int
+$choice /= tstr
+
+id = tstr .regexp "[A-Z][0-9]+"
+
+pair = map<int, tstr>

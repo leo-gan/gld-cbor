@@ -66,6 +66,10 @@ def _kind_name(doc: CddlDoc, idx: Int) raises DecodeError -> String:
             return String("BigUint")
         if t.tag == UInt64(3):
             return String("BigNint")
+        if t.tag == UInt64(4):
+            return String("DecimalFraction")
+        if t.tag == UInt64(5):
+            return String("BigFloat")
         if t.tag == UInt64(32):
             return String("Uri")
         return String("CborValue")

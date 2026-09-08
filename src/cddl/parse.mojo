@@ -6,15 +6,20 @@ from cddl.model import (
     CT_BOOL,
     CT_BSTR,
     CT_CHOICE,
+    CT_CONTROL,
     CT_FLOAT,
+    CT_GENERIC,
     CT_INT,
     CT_NAMED,
     CT_NULL,
     CT_OPTIONAL,
+    CT_REGEXP,
+    CT_SOCKET,
     CT_STRUCT,
     CT_TAG,
     CT_TSTR,
     CT_UINT,
+    CT_VALUE,
     CddlDoc,
     CddlMember,
     CddlType,
@@ -127,9 +132,26 @@ def _parse_type[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises
     return first
 
 
-def _parse_type1[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+def _parse_string[origin: ImmOrigin](mut p: _Lex[origin]) raises DecodeError -> String:
     p.skip()
-    # reject ~
+    if p.peek() != 34:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    p.pos += 1
+    var start = p.pos
+    while p.peek() != 34 and p.peek() != -1:
+        if p.peek() == 92:
+            p.pos += 2
+        else:
+            p.pos += 1
+    if p.peek() != 34:
+        raise DecodeError(DecodeError.KIND_CDDL, p.pos)
+    var s = _slice_str(p.data, start, p.pos)
+    p.pos += 1
+    return s
+
+
+def _parse_type2[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    p.skip()
     if p.peek() == 126:
         raise DecodeError(DecodeError.KIND_CDDL, p.pos)
     if p.peek() == 123:
@@ -138,11 +160,71 @@ def _parse_type1[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raise
         return _parse_array(p, doc)
     if p.peek() == 35:
         return _parse_tag(p, doc)
+    if p.peek() == 34:
+        var lit = _parse_string(p)
+        return doc.add_type(CddlType(CT_VALUE, name=lit))
+    if p.peek() == 36:
+        # $socket or $$group-socket
+        p.pos += 1
+        var group = False
+        if p.peek() == 36:
+            p.pos += 1
+            group = True
+        var sname = _ident(p)
+        var sock = doc.find_socket(sname)
+        if sock < 0:
+            sock = doc.add_socket(sname, group)
+        return doc.add_type(CddlType(CT_SOCKET, name=sname, inner=sock))
+    if p.peek() >= 48 and p.peek() <= 57 or p.peek() == 45:
+        var start = p.pos
+        if p.peek() == 45:
+            p.pos += 1
+        while p.peek() >= 48 and p.peek() <= 57:
+            p.pos += 1
+        var num = _slice_str(p.data, start, p.pos)
+        return doc.add_type(CddlType(CT_VALUE, name=num))
     var name = _ident(p)
+    if name == "decimalfraction":
+        return doc.add_type(CddlType(CT_TAG, name=name, tag=UInt64(4)))
+    if name == "bigfloat":
+        return doc.add_type(CddlType(CT_TAG, name=name, tag=UInt64(5)))
+    p.skip()
+    if p.peek() == 60:
+        # generic application name<T, U>
+        p.pos += 1
+        var astart = len(doc.extras)
+        var acount = 0
+        p.skip()
+        while p.peek() != 62 and p.peek() != -1:
+            var arg = _parse_type(p, doc)
+            doc.extras.append(arg)
+            acount += 1
+            p.skip()
+            if p.peek() == 44:
+                p.pos += 1
+                p.skip()
+        _eat(p, 62)
+        return doc.add_type(
+            CddlType(CT_GENERIC, name=name, members_start=astart, members_count=acount)
+        )
     var pk = _prelude(name)
     if pk >= 0:
         return doc.add_type(CddlType(pk, name=name))
     return doc.add_type(CddlType(CT_NAMED, name=name))
+
+
+def _parse_type1[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    var t = _parse_type2(p, doc)
+    p.skip()
+    if p.peek() != 46:
+        return t
+    p.pos += 1
+    var ctl = _ident(p)
+    if ctl == "regexp" or ctl == "pcre":
+        var pat = _parse_string(p)
+        return doc.add_type(CddlType(CT_REGEXP, name=pat, inner=t))
+    var arg = _parse_type2(p, doc)
+    return doc.add_type(CddlType(CT_CONTROL, name=ctl, inner=t, inner2=arg))
 
 
 def _parse_tag[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
@@ -223,20 +305,99 @@ def _parse_array[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raise
     )
 
 
+def _parse_group[origin: ImmOrigin](mut p: _Lex[origin], mut doc: CddlDoc) raises DecodeError -> Int:
+    _eat(p, 40)
+    var start = len(doc.members)
+    var count = 0
+    p.skip()
+    while p.peek() != 41 and p.peek() != -1:
+        var optional = False
+        if p.peek() == 63:
+            optional = True
+            p.pos += 1
+            p.skip()
+        var name = _ident(p)
+        p.skip()
+        _eat(p, 58)
+        var ty = _parse_type(p, doc)
+        doc.members.append(CddlMember(name, ty, optional))
+        count += 1
+        p.skip()
+        if p.peek() == 44:
+            p.pos += 1
+            p.skip()
+    _eat(p, 41)
+    return doc.add_type(
+        CddlType(CT_STRUCT, members_start=start, members_count=count)
+    )
+
+
 def parse_cddl(text: String) raises DecodeError -> CddlDoc:
     var b = text.as_bytes()
     var p = _Lex(b)
     var doc = CddlDoc()
     p.skip()
     while p.peek() != -1:
+        var dollars = 0
+        while p.peek() == 36:
+            p.pos += 1
+            dollars += 1
         var name = _ident(p)
         p.skip()
-        _eat(p, 61)
-        # reject /= as extend only if we see /= after eating =... `/=` starts with /
-        var ty = _parse_type(p, doc)
-        doc.def_names.append(name)
-        doc.def_types.append(ty)
+        if p.peek() == 60:
+            p.pos += 1
+            p.skip()
+            while p.peek() != 62 and p.peek() != -1:
+                _ = _ident(p)
+                p.skip()
+                if p.peek() == 44:
+                    p.pos += 1
+                    p.skip()
+            _eat(p, 62)
+            p.skip()
+        var extend = False
+        if p.peek() == 47:
+            p.pos += 1
+            if p.peek() == 47:
+                p.pos += 1
+            _eat(p, 61)
+            extend = True
+        else:
+            _eat(p, 61)
+        if dollars >= 1:
+            var sock = doc.find_socket(name)
+            if sock < 0:
+                sock = doc.add_socket(name, dollars >= 2)
+            var plug: Int
+            if dollars >= 2:
+                plug = _parse_group(p, doc)
+            else:
+                plug = _parse_type(p, doc)
+            doc.add_plug(sock, plug)
+            if not extend:
+                doc.def_names.append(name)
+                doc.def_types.append(
+                    doc.add_type(CddlType(CT_SOCKET, name=name, inner=sock))
+                )
+        else:
+            var ty = _parse_type(p, doc)
+            if extend:
+                var found = -1
+                for i in range(len(doc.def_names)):
+                    if doc.def_names[i] == name:
+                        found = i
+                if found >= 0:
+                    var choice = doc.add_type(
+                        CddlType(CT_CHOICE, inner=doc.def_types[found], inner2=ty)
+                    )
+                    doc.def_types[found] = choice
+                else:
+                    doc.def_names.append(name)
+                    doc.def_types.append(ty)
+            else:
+                doc.def_names.append(name)
+                doc.def_types.append(ty)
         p.skip()
-    if len(doc.def_names) == 0:
+    if len(doc.def_names) == 0 and len(doc.socket_names) == 0:
         raise DecodeError(DecodeError.KIND_CDDL, 0)
     return doc^

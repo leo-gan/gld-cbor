@@ -3,6 +3,7 @@ from std.collections import List, Span
 from runtime.error import DecodeError
 from runtime.options import EncodeOptions
 from runtime.value import (
+    CK_ARRAY,
     CK_BYTES,
     CK_FLOAT16,
     CK_FLOAT32,
@@ -53,6 +54,48 @@ struct Uri(Copyable, ImplicitlyCopyable, Movable):
 
     def __init__(out self, text: String = ""):
         self.text = text
+
+
+struct DecimalFraction(Movable):
+    """RFC 8949 tag 4: value = mantissa × 10^exp."""
+
+    var exp: Int64
+    var mant: Int64
+    var big: List[Byte]
+    var big_neg: Bool
+
+    def __init__(out self, exp: Int64 = 0, mant: Int64 = 0):
+        self.exp = exp
+        self.mant = mant
+        self.big = List[Byte]()
+        self.big_neg = False
+
+    def __init__(out self, exp: Int64, var big: List[Byte], *, neg: Bool):
+        self.exp = exp
+        self.mant = Int64(0)
+        self.big = big^
+        self.big_neg = neg
+
+
+struct BigFloat(Movable):
+    """RFC 8949 tag 5: value = mantissa × 2^exp."""
+
+    var exp: Int64
+    var mant: Int64
+    var big: List[Byte]
+    var big_neg: Bool
+
+    def __init__(out self, exp: Int64 = 0, mant: Int64 = 0):
+        self.exp = exp
+        self.mant = mant
+        self.big = List[Byte]()
+        self.big_neg = False
+
+    def __init__(out self, exp: Int64, var big: List[Byte], *, neg: Bool):
+        self.exp = exp
+        self.mant = Int64(0)
+        self.big = big^
+        self.big_neg = neg
 
 
 def _is_digit(b: Byte) -> Bool:
@@ -228,3 +271,78 @@ def encode_tag32(u: Uri) raises DecodeError -> List[Byte]:
     w.write_tag(UInt64(32))
     w.write_tstr(u.text)
     return w^.finish()
+
+
+def _node_int64(v: CborValue, idx: Int) raises DecodeError -> Int64:
+    var n = v.nodes[idx]
+    if n.kind == CK_INT:
+        return n.a
+    if n.kind == CK_UINT:
+        if n.b > UInt64(Int64.MAX):
+            raise DecodeError(DecodeError.KIND_RANGE, 0)
+        return Int64(n.b)
+    raise DecodeError(DecodeError.KIND_TAG, 0)
+
+
+def _decode_scaled(v: CborValue, want_tag: UInt64) raises DecodeError -> Tuple[Int64, Int64, List[Byte], Bool]:
+    var n = v.nodes[v.root]
+    if n.kind != CK_TAG or n.b != want_tag:
+        raise DecodeError(DecodeError.KIND_TAG, 0)
+    var arr = v.nodes[n.c]
+    if arr.kind != CK_ARRAY or Int(arr.b) != 2:
+        raise DecodeError(DecodeError.KIND_TAG, 0)
+    var a0 = Int(arr.a)
+    var exp_idx = v.kids[a0]
+    var mant_idx = v.kids[a0 + 1]
+    var exp = _node_int64(v, exp_idx)
+    var mn = v.nodes[mant_idx]
+    if mn.kind == CK_INT or mn.kind == CK_UINT:
+        return (exp, _node_int64(v, mant_idx), List[Byte](), False)
+    if mn.kind == CK_TAG and (mn.b == UInt64(2) or mn.b == UInt64(3)):
+        var raw = _copy_bstr(v, mn.c)
+        return (exp, Int64(0), raw^, mn.b == UInt64(3))
+    raise DecodeError(DecodeError.KIND_TAG, 0)
+
+
+def decode_tag4(v: CborValue) raises DecodeError -> DecimalFraction:
+    var t = _decode_scaled(v, UInt64(4))
+    if len(t[2]) == 0:
+        return DecimalFraction(t[0], t[1])
+    var big4 = List[Byte]()
+    for i in range(len(t[2])):
+        big4.append(t[2][i])
+    return DecimalFraction(t[0], big4^, neg=t[3])
+
+
+def decode_tag5(v: CborValue) raises DecodeError -> BigFloat:
+    var t = _decode_scaled(v, UInt64(5))
+    if len(t[2]) == 0:
+        return BigFloat(t[0], t[1])
+    var big5 = List[Byte]()
+    for i in range(len(t[2])):
+        big5.append(t[2][i])
+    return BigFloat(t[0], big5^, neg=t[3])
+
+
+def _encode_scaled(tag: UInt64, exp: Int64, mant: Int64, big: List[Byte], big_neg: Bool) -> List[Byte]:
+    var w = WireWriter()
+    w.write_tag(tag)
+    w.write_array_len(2)
+    w.write_int(exp)
+    if len(big) == 0:
+        w.write_int(mant)
+    else:
+        if big_neg:
+            w.write_tag(UInt64(3))
+        else:
+            w.write_tag(UInt64(2))
+        w.write_bstr(big)
+    return w^.finish()
+
+
+def encode_tag4(d: DecimalFraction) -> List[Byte]:
+    return _encode_scaled(UInt64(4), d.exp, d.mant, d.big, d.big_neg)
+
+
+def encode_tag5(d: BigFloat) -> List[Byte]:
+    return _encode_scaled(UInt64(5), d.exp, d.mant, d.big, d.big_neg)
