@@ -29,6 +29,26 @@ from cbor import (
 )
 
 
+def test_tag0_rejects_map() raises:
+    # cbor-wg-bad-47: c0 a1 61 61 00 — tag 0 (date) wrapping a map.
+    var raised = False
+    try:
+        _ = decode_value(bytes_of(0xC0, 0xA1, 0x61, 0x61, 0x00))
+    except _:
+        raised = True
+    assert_true(raised)
+
+
+def test_tag1_rejects_map() raises:
+    # cbor-wg-bad-46: c1 a1 61 61 00 — tag 1 (epoch) wrapping a map.
+    var raised = False
+    try:
+        _ = decode_value(bytes_of(0xC1, 0xA1, 0x61, 0x61, 0x00))
+    except _:
+        raised = True
+    assert_true(raised)
+
+
 def test_tag1_epoch() raises:
     # 1(1363896240) = c1 1a 514b67b0
     var buf = encode_tag1(EpochTime(1363896240.0))
