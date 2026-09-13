@@ -316,7 +316,7 @@ CDE write of a map (RFC 8949 §4.2.1):
 
 ### Tags
 
-Major 6, then one nested item. Nested tags are allowed. Depth is capped at `MAX_DEPTH = 100` (`KIND_DEPTH`).
+Major 6, then one nested item. Nested tags are allowed. Depth is capped at `MAX_DEPTH = 1024` (`KIND_DEPTH`) so official RFC 8949 deeply-nested vectors (~508) decode. Tag 0 requires a text string; tag 1 requires a number.
 
 `CborValue` kind `TAG` stores the tag number as `UInt64` and a child node index.
 

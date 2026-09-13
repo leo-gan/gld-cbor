@@ -19,6 +19,18 @@ def test_empty_map() raises:
     assert_equal(Int(v.nodes[v.root].b), 0)
 
 
+def test_deeply_nested_array() raises:
+    # RFC 8949 official vector nests ~508 arrays. Depth cap must accept that.
+    var buf = List[Byte]()
+    var i = 0
+    while i < 508:
+        buf.append(Byte(0x81))
+        i += 1
+    buf.append(Byte(0x00))
+    var v = decode_value(buf)
+    assert_equal(v.nodes[v.root].kind, CK_ARRAY)
+
+
 def test_one_pair_text_key() raises:
     var v = decode_value(bytes_of(0xA1, 0x61, 0x61, 0x01))
     assert_equal(v.nodes[v.root].kind, CK_MAP)
