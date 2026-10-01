@@ -8,7 +8,7 @@
 | **Status** | Draft (rev 2) |
 | **Target repo** | `/home/leo/PycharmProjects/GLD/gld-cbor` (greenfield standalone library; only a local `.env` as of 2026-09-08) |
 | **License** | MIT, Copyright (c) 2026 Leonid Ganeline |
-| **Recommended Mojo pin** | `mojo == 1.0.0` (stable, 2026-08-11) |
+| **Recommended Mojo pin** | `mojo == 1.1.0` (stable, 2026-09-17) |
 | **Spec targets** | [RFC 8949](https://www.rfc-editor.org/rfc/rfc8949.html) (CBOR; preferred §4.1, core deterministic encoding §4.2.1), [RFC 8742](https://www.rfc-editor.org/rfc/rfc8742.html) (CBOR Sequences), [RFC 8610](https://www.rfc-editor.org/rfc/rfc8610.html) (CDDL), [draft-ietf-cbor-cde](https://datatracker.ietf.org/doc/draft-ietf-cbor-cde/) (CDE profile on top of §4.2.1) |
 
 ---
