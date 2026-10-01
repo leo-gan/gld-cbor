@@ -2,7 +2,13 @@ from std.collections import List, Span
 
 from runtime.error import DecodeError
 from runtime.options import EncodeOptions
-from runtime.value import CborValue, decode_item, encode_value
+from runtime.value import (
+    CborValue,
+    _TextCache,
+    _decode_one,
+    _reserve_decode,
+    encode_value_into,
+)
 from wire.head import MAX_COUNT
 from wire.reader import WireReader
 from wire.writer import WireWriter
@@ -30,7 +36,9 @@ struct SeqDecoder[origin: ImmOrigin](Movable):
         if self.seen >= MAX_COUNT:
             raise DecodeError(DecodeError.KIND_RANGE, self.reader.position())
         var v = CborValue()
-        v.root = decode_item(self.reader, v)
+        _reserve_decode(v, self.reader.remaining())
+        var cache = _TextCache()
+        v.root = _decode_one(self.reader, v, cache)
         self.seen += 1
         return v^
 
@@ -55,9 +63,7 @@ def decode_seq_values[origin: ImmOrigin](buf: Span[Byte, origin]) raises DecodeE
 def encode_seq_values(
     items: List[CborValue], options: EncodeOptions = EncodeOptions.preferred
 ) raises DecodeError -> List[Byte]:
-    var w = WireWriter()
+    var w = WireWriter(capacity=len(items) * 32 + 32)
     for i in range(len(items)):
-        var one = encode_value(items[i], options)
-        for j in range(len(one)):
-            w.write_byte(one[j])
+        encode_value_into(items[i], w, options)
     return w^.finish()
