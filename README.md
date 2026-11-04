@@ -1,5 +1,7 @@
 # mojo-cbor
 
+[Serialization](https://leo-gan.github.io/serialization/) is the hub for the theory, the history, and the benchmarks.
+
 A from-scratch [CBOR](https://en.wikipedia.org/wiki/CBOR) implementation for
 [Mojo](https://mojolang.org/). The runtime and the code generator are written
 in Mojo. They do not wrap, link, or vendor libcbor, tinycbor, or any other C,
